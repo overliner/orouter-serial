@@ -162,6 +162,10 @@ impl MessagePool {
         size
     }
 
+    pub fn reset(&mut self) {
+        self.incomplete_message_map.clear();
+    }
+
     pub(crate) fn is_valid_message(&self, msg: &[u8]) -> bool {
         // 4B hash + part_num + total_count + len + 1B data
         if msg.len() < 8 {
@@ -450,6 +454,32 @@ mod tests {
             Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
         assert_ne!(None, p.try_insert(msg1_2).unwrap());
         assert_eq!(p.size(), 3); // none added, msg1 removed with this one
+    }
+
+    #[test]
+    fn test_pool_reset() {
+        let mut p = MessagePool::default();
+        assert_eq!(p.size(), 0);
+        // messages with 5 different prefixes
+        let msg1 =
+            //                         prefix               | num | tot | len | data
+            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+        assert_eq!(None, p.try_insert(msg1).unwrap());
+        assert_eq!(p.size(), 1);
+        let msg2 =
+            //                         prefix               | num | tot | len | data
+            Vec::<_, _>::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+        assert_eq!(None, p.try_insert(msg2.clone()).unwrap());
+        assert_eq!(p.size(), 2);
+
+        p.reset();
+        assert_eq!(p.size(), 0);
+
+        assert_eq!(None, p.try_insert(msg2).unwrap());
+        assert_eq!(p.size(), 1);
+
+        p.reset();
+        assert_eq!(p.size(), 0);
     }
 
     #[test]
