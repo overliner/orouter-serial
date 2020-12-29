@@ -87,7 +87,11 @@ impl Message {
             return Err(Error::MalformedMessage);
         };
 
-        let decoded_len = cobs::decode_in_place_with_sentinel(buf, COBS_SENTINEL).unwrap();
+        let decoded_len = match cobs::decode_in_place_with_sentinel(buf, COBS_SENTINEL) {
+            Ok(len) => len,
+            Err(_) => return Err(Error::MalformedMessage),
+        };
+
         match buf[0] {
             0xc0 => Ok(Message::SendData {
                 data: Vec::<u8, U512>::from_slice(&buf[1..decoded_len]).unwrap(),
