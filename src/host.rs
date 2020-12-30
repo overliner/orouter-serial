@@ -62,6 +62,8 @@ pub enum Message {
         receive_queue_size: u8,
         transmit_queue_size: u8,
     },
+    /// Node reporting some error state to host
+    Error { code: u8 },
 }
 
 impl Debug for Message {
@@ -77,6 +79,7 @@ impl Debug for Message {
                 receive_queue_size,
                 transmit_queue_size,
             } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
+            Message::Error { code } => write!(f, "Error({:?})", code),
         }
     }
 }
@@ -118,6 +121,7 @@ impl Message {
             Message::Configure { .. } => 1,
             Message::ReportRequest => 0,
             Message::Report { .. } => 7,
+            Message::Error { .. } => 1,
         };
 
         1 + variable_part_length
@@ -154,6 +158,9 @@ impl Message {
                 enc.push(&[*region]).unwrap();
                 enc.push(&[*receive_queue_size]).unwrap();
                 enc.push(&[*transmit_queue_size]).unwrap();
+            }
+            Message::Error { code } => {
+                enc.push(&[0xc5, *code]).unwrap();
             }
         };
 
