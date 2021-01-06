@@ -19,19 +19,19 @@ pub type MaxMessageQueueLength = U3;
 /// Computed as
 ///
 /// ```ignore - not a test
-/// 1+512 => longest message raw bytes length (SendData.len() when data vec is full)
+/// 1+255 => longest message raw bytes length (SendData.len() when data vec is full)
 /// +
-/// 1+ceil(513/254) = 4 = COBS worst overhead
+/// 1+ceil(256/254) = 4 = COBS worst overhead
 /// +
 /// 1 = COBS sentinel
 /// ---
-/// 518
+/// 260
 /// ```
 ///
-pub type MaxMessageLength = U518; // 512+1 (longest) +
+pub type MaxMessageLength = U260;
 pub type HostMessageVec = Vec<u8, MaxMessageLength>;
 
-type MaxSerialFrameLength = U512;
+type MaxSerialFrameLength = U151; // BLE can only process 151 bytes long payload
 type SerialFrameVec = Vec<u8, MaxSerialFrameLength>;
 
 #[derive(Debug, PartialEq)]
@@ -47,9 +47,13 @@ pub enum Error {
 #[derive(PartialEq)]
 pub enum Message {
     /// Host sending data to node instructing it to broadcast it to the wireless network
-    SendData { data: Vec<u8, U512> },
+    SendData {
+        data: Vec<u8, crate::overline::MaxLoraPayloadLength>,
+    },
     /// Node sending data to host
-    ReceiveData { data: Vec<u8, U512> },
+    ReceiveData {
+        data: Vec<u8, crate::overline::MaxLoraPayloadLength>,
+    },
     /// Host is recongifuring the node
     Configure { region: u8 },
     /// Host requesting the node status
@@ -97,10 +101,10 @@ impl Message {
 
         match buf[0] {
             0xc0 => Ok(Message::SendData {
-                data: Vec::<u8, U512>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, U255>::from_slice(&buf[1..decoded_len]).unwrap(),
             }),
             0xc1 => Ok(Message::ReceiveData {
-                data: Vec::<u8, U512>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, U255>::from_slice(&buf[1..decoded_len]).unwrap(),
             }),
             0xc2 => Ok(Message::Configure { region: buf[1] }),
             0xc3 => Ok(Message::ReportRequest),
@@ -130,7 +134,7 @@ impl Message {
     /// Serializes messages using COBS encoding and DOES terminate it with COBS_SENTINEL
     /// Returned vecs can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_cobs_encoded_serial_frames(&self) -> Result<Vec<SerialFrameVec, U2>, Error> {
-        let mut result = HostMessageVec::new(); // Maximum message length is 512 + cobs overhead
+        let mut result = HostMessageVec::new(); // Maximum message length is 256 + cobs overhead
         let mut encoded_len = cobs::max_encoding_length(self.len() + 1);
         result.resize_default(encoded_len).unwrap();
         let mut enc = cobs::CobsEncoder::new(&mut result);
@@ -179,13 +183,13 @@ impl Message {
 }
 
 pub struct MessageReader {
-    buf: Vec<u8, U1024>,
+    buf: Vec<u8, U792>,
 }
 
 impl MessageReader {
     pub fn new() -> Self {
         Self {
-            buf: Vec::<u8, U1024>::new(),
+            buf: Vec::<u8, U792>::new(),
         }
     }
 
@@ -208,7 +212,7 @@ impl MessageReader {
                 match Message::try_from(&mut self.buf[0..cobs_index]) {
                     Ok(command) => {
                         self.buf =
-                            Vec::<u8, U1024>::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
+                            Vec::<u8, U792>::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
                         if (output.len() as u16) < MaxMessageQueueLength::U16 {
                             output.push(command).unwrap();
@@ -263,14 +267,14 @@ mod tests {
         assert_eq!(
             3,
             Message::SendData {
-                data: Vec::<u8, U512>::from_slice(&[0xff, 0xee]).unwrap()
+                data: Vec::<u8, U255>::from_slice(&[0xff, 0xee]).unwrap()
             }
             .len()
         );
         assert_eq!(
             5,
             Message::ReceiveData {
-                data: Vec::<u8, U512>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
+                data: Vec::<u8, U255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
             }
             .len()
         );
@@ -309,22 +313,23 @@ mod tests {
             0xdc, 0x50, 0xf6, 0x33, 0x40, 0xe8, 0x90, 0xaa, 0x7a, 0xe5, 0x71, 0x32, 0x1a, 0x2a,
             0xfd, 0xc7, 0x4b, 0x3d, 0x85, 0xb2, 0x0d, 0x58, 0x09, 0xdb, 0xaf, 0x70, 0x31, 0x22,
             0xf1, 0x1d, 0x92, 0x81, 0x19, 0x44, 0x92, 0xe5, 0x8d, 0xb5, 0xad, 0x64, 0x24, 0x7b,
-            0xf4, 0x3b, 0xf8, 0x9a,
+            0xf4, 0x3b, 0xf8,
         ];
         let msg = Message::SendData {
-            data: Vec::<u8, U512>::from_slice(&encoded[..]).unwrap(),
+            data: Vec::<u8, U255>::from_slice(&encoded[..]).unwrap(),
         };
 
         let frames = msg.as_cobs_encoded_serial_frames().unwrap();
 
-        assert_eq!(frames.len(), 1);
+        assert_eq!(frames.len(), 2);
 
         let result = &frames[0];
-        assert_eq!(result.len(), 259);
+        let last_frame = &frames.last().unwrap();
+        assert_eq!(result.len(), MaxSerialFrameLength::USIZE);
         for b in &result[0..result.len() - 2] {
             assert_ne!(0x00, *b);
         }
-        assert_eq!(0x00, result[258]);
+        assert_eq!(Some(&0x00), last_frame.last());
     }
 
     #[test]
@@ -362,13 +367,13 @@ mod tests {
         assert_eq!(
             messages[0],
             Message::SendData {
-                data: Vec::<u8, U512>::from_slice(&[0xff, 0xee]).unwrap()
+                data: Vec::<u8, U255>::from_slice(&[0xff, 0xee]).unwrap()
             }
         );
         assert_eq!(
             messages[1],
             Message::ReceiveData {
-                data: Vec::<u8, U512>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
+                data: Vec::<u8, U255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
             }
         );
     }
@@ -415,11 +420,11 @@ mod tests {
 
     #[test]
     fn test_max_len_data_message_encoding() {
-        let mut arr = [0u8; 512];
+        let mut arr = [0u8; crate::overline::MaxLoraPayloadLength::USIZE];
         thread_rng().try_fill(&mut arr[..]).unwrap();
 
         let msg = Message::SendData {
-            data: Vec::<u8, U512>::from_slice(&arr).unwrap(),
+            data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&arr).unwrap(),
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames

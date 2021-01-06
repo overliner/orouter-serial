@@ -1,5 +1,6 @@
 use heapless::{consts::*, Vec};
 
+pub type MaxLoraPayloadLength = U255;
 pub type OverlineMessageHash = Vec<u8, U16>;
 
 /// Logical message of overline protocol - does not contain any link level data
