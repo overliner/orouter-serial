@@ -1,6 +1,7 @@
 use heapless::{consts::*, Vec};
 
 pub type MaxLoraPayloadLength = U255;
+pub type OverlineMessage = Vec<u8, MaxLoraPayloadLength>;
 pub type OverlineMessageHash = Vec<u8, U16>;
 
 /// Logical message of overline protocol - does not contain any link level data
@@ -10,7 +11,7 @@ pub enum OverlineMessageType {
     Proof(Vec<u8, U16>),
     Flush(Vec<u8, U16>),
     Receipt(Vec<u8, U16>),
-    Other(Vec<u8, U512>),
+    Other(Vec<u8, MaxLoraPayloadLength>),
 }
 
 #[cfg(test)]
