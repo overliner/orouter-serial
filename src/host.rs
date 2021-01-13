@@ -31,7 +31,7 @@ pub type MaxMessageQueueLength = U3;
 pub type MaxMessageLength = U260;
 pub type HostMessageVec = Vec<u8, MaxMessageLength>;
 
-type MaxSerialFrameLength = U151; // BLE can only process 151 bytes long payload
+type MaxSerialFrameLength = U128; // BLE can only process this
 type SerialFrameVec = Vec<u8, MaxSerialFrameLength>;
 
 #[derive(Debug, PartialEq)]
@@ -333,7 +333,7 @@ mod tests {
 
         let frames = msg.as_cobs_encoded_serial_frames().unwrap();
 
-        assert_eq!(frames.len(), 2);
+        assert_eq!(frames.len(), 3);
 
         let result = &frames[0];
         let last_frame = &frames.last().unwrap();
@@ -441,11 +441,11 @@ mod tests {
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames
         let frames = msg.as_cobs_encoded_serial_frames().unwrap();
-        assert_eq!(frames.len(), 2);
+        assert_eq!(frames.len(), 3);
 
         // lets check the the second (last) frame has COBS_SENTINEL at the end
-        let result = &frames[1];
-        assert_eq!(result[result.len() - 1], COBS_SENTINEL);
+        let last_frame = &frames.last().unwrap();
+        assert_eq!(last_frame.last().unwrap(), &COBS_SENTINEL);
     }
 
     #[test]
