@@ -212,8 +212,7 @@ impl MessageReader {
             if self.buf[cobs_index] == COBS_SENTINEL {
                 match Message::try_from(&mut self.buf[0..cobs_index]) {
                     Ok(command) => {
-                        self.buf =
-                            Vec::<u8, U792>::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
+                        self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
                         if (output.len() as u16) < MaxMessageQueueLength::U16 {
                             output.push(command).unwrap();
