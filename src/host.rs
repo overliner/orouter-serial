@@ -11,7 +11,7 @@
 use core::convert::TryInto;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use heapless::{consts::*, Vec};
-use typenum::Unsigned;
+use typenum::{op, Unsigned, *};
 
 const COBS_SENTINEL: u8 = 0x00;
 pub type MaxMessageQueueLength = U3;
@@ -29,6 +29,7 @@ pub type MaxMessageQueueLength = U3;
 /// ```
 ///
 pub type MaxMessageLength = U260;
+pub type MaxMessageLengthHexEncoded = op!(U2 * MaxMessageLength);
 pub type HostMessageVec = Vec<u8, MaxMessageLength>;
 
 type MaxSerialFrameLength = U128; // BLE can only process this
@@ -132,9 +133,7 @@ impl Message {
         1 + variable_part_length
     }
 
-    /// Serializes messages using COBS encoding and DOES terminate it with COBS_SENTINEL
-    /// Returned vecs can be send as is over the wire, it itself is a valid host protocol packet
-    pub fn as_cobs_encoded_serial_frames(&self) -> Result<Vec<SerialFrameVec, U2>, Error> {
+    pub fn encode(&self) -> Result<HostMessageVec, Error> {
         let mut result = HostMessageVec::new(); // Maximum message length is 256 + cobs overhead
         let mut encoded_len = cobs::max_encoding_length(self.len() + 1);
         result.resize_default(encoded_len).unwrap();
@@ -172,9 +171,34 @@ impl Message {
         encoded_len = enc.finalize().unwrap();
         result.push(COBS_SENTINEL).unwrap();
         result.truncate(encoded_len + 1 as usize);
+        Ok(result)
+    }
 
-        let mut frames = Vec::<SerialFrameVec, U2>::new();
+    /// Serializes messages using COBS encoding and DOES terminate it with COBS_SENTINEL
+    /// Returned Vecs can be send as is over the wire, it itself is a valid host protocol packet
+    pub fn as_cobs_encoded_serial_frames(&self) -> Result<Vec<SerialFrameVec, U3>, Error> {
+        let mut result = self.encode().unwrap();
+        let mut frames = Vec::<SerialFrameVec, U3>::new();
         for chunk in result.chunks_mut(MaxSerialFrameLength::USIZE) {
+            frames
+                .push(SerialFrameVec::from_slice(&chunk).unwrap())
+                .unwrap()
+        }
+        Ok(frames)
+    }
+
+    /// Returns frames inteded to be send over our BLE connected which only is capable of
+    /// correctly decode messages which contain only ASCII - don't ask, just read section 2.4.3 of
+    /// RN4870-71 User Guide (DS50002466C)
+    // FIXME verify or use type arithmetics to count if U4 is correct
+    pub fn as_cobs_encoded_frames_for_ble(&self) -> Result<Vec<SerialFrameVec, U4>, Error> {
+        let result = self.encode().unwrap();
+        let mut hex_result = Vec::<u8, MaxMessageLengthHexEncoded>::new(); // Maximum message length is 256 + cobs overhead
+        hex_result.resize_default(result.len() * 2).unwrap();
+        base16::encode_config_slice(&result, base16::EncodeLower, &mut hex_result);
+        let mut frames = Vec::<SerialFrameVec, U4>::new();
+        // FIXME wrap with delimiters
+        for chunk in hex_result.chunks_mut(MaxSerialFrameLength::USIZE) {
             frames
                 .push(SerialFrameVec::from_slice(&chunk).unwrap())
                 .unwrap()
@@ -464,5 +488,20 @@ mod tests {
         cr.process_bytes(buf.as_ref()).unwrap();
         let err = cr.ltrim(buf.len() + 1);
         assert_eq!(err, Err(Error::BufferLengthNotSufficient));
+    }
+
+    #[test]
+    fn test_single_message_encoding_as_cobs_encoded_frames_for_ble() {
+        let expected = &[0x03, 0xc2, 0xff, 0x00];
+        let msg = Message::Configure { region: 255u8 };
+        let frames = msg.as_cobs_encoded_frames_for_ble().unwrap();
+
+        assert_eq!(frames.len(), 1);
+        let result = &frames[0];
+        let mut decoded = Vec::<u8, U4>::new();
+        decoded.resize_default(expected.len()).unwrap();
+        base16::decode_slice(result.into(), &mut decoded).unwrap();
+        println!("encoded = {:02x?}", &result);
+        assert_eq!(decoded, expected);
     }
 }
