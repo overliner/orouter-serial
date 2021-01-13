@@ -37,6 +37,7 @@ type SerialFrameVec = Vec<u8, MaxSerialFrameLength>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     BufferFull,
+    BufferLengthNotSufficient,
     MalformedMessage,
     MessageQueueFull,
 }
@@ -237,6 +238,18 @@ impl MessageReader {
         }
         Ok(output)
     }
+
+    pub fn ltrim(&mut self, length: usize) -> Result<(), Error> {
+        if self.buf.len() < length {
+            return Err(Error::BufferLengthNotSufficient);
+        }
+
+        self.buf = match Vec::from_slice(&self.buf[length..]) {
+            Ok(b) => b,
+            Err(_) => return Err(Error::BufferLengthNotSufficient),
+        };
+        Ok(())
+    }
 }
 
 impl Default for MessageReader {
@@ -434,5 +447,23 @@ mod tests {
         // lets check the the second (last) frame has COBS_SENTINEL at the end
         let result = &frames[1];
         assert_eq!(result[result.len() - 1], COBS_SENTINEL);
+    }
+
+    #[test]
+    fn test_ltrim_ok() {
+        let mut cr = MessageReader::new();
+        let buf = b"%DISCONNECT%";
+        cr.process_bytes(buf.as_ref()).unwrap();
+        let res = cr.ltrim(buf.len());
+        assert_eq!(Ok(()), res);
+    }
+
+    #[test]
+    fn test_ltrim_err() {
+        let mut cr = MessageReader::new();
+        let buf = b"%DISCONNECT%";
+        cr.process_bytes(buf.as_ref()).unwrap();
+        let err = cr.ltrim(buf.len() + 1);
+        assert_eq!(err, Err(Error::BufferLengthNotSufficient));
     }
 }
