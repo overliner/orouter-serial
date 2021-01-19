@@ -46,6 +46,13 @@ pub enum Error {
     BufferLengthNotSufficient,
     MalformedMessage,
     MessageQueueFull,
+    MalformedHex(base16::DecodeError),
+}
+
+impl From<base16::DecodeError> for Error {
+    fn from(e: base16::DecodeError) -> Error {
+        Error::MalformedHex(e)
+    }
 }
 
 /// Possible commands send over host protocol
@@ -270,6 +277,18 @@ impl MessageReader {
             cobs_index += 1;
         }
         Ok(output)
+    }
+
+    pub fn process_bytes_hex(
+        &mut self,
+        hex_bytes: &[u8],
+    ) -> Result<Vec<Message, MaxMessageQueueLength>, Error> {
+        let mut decoded = Vec::<u8, U64>::new();
+        decoded.resize_default(64).unwrap();
+        match base16::decode_slice(&hex_bytes, &mut decoded) {
+            Ok(decoded_len) => self.process_bytes(&decoded[0..decoded_len]),
+            Err(e) => Err(Error::MalformedHex(e)),
+        }
     }
 
     pub fn ltrim(&mut self, length: usize) -> Result<(), Error> {
@@ -512,6 +531,21 @@ mod tests {
         decoded.resize_default(expected.len()).unwrap();
         base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
+    }
+
+    #[test]
+    fn test_message_reader_process_bytes_hex() {
+        let msg = Message::Configure { region: 255u8 };
+        let hex_frames = msg.as_cobs_encoded_frames_for_ble('%').unwrap();
+
+        assert_eq!(hex_frames.len(), 1);
+        let hex_frame = hex_frames[0].clone();
+        let mut cr = MessageReader::new();
+        let messages = cr
+            .process_bytes_hex(&hex_frame[1..hex_frame.len() - 1])
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0], msg);
     }
 
     #[test]
