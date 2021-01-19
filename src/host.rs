@@ -30,8 +30,12 @@ pub type MaxMessageQueueLength = U3;
 /// ```
 ///
 pub type MaxMessageLength = U260;
-pub type MaxMessageLengthHexEncoded = op!(U2 * MaxMessageLength);
+pub type MaxMessageLengthHexEncoded = op!(U2 * MaxMessageLength); // hex encoding - each byte = 2 chars
 pub type HostMessageVec = Vec<u8, MaxMessageLength>;
+type MaxHexEncodedFramesCountRemainder =
+    op!(min(U1, MaxMessageLengthHexEncoded % MaxSerialFrameLength));
+pub type MaxHexEncodedFramesCount =
+    op!(MaxMessageLengthHexEncoded / MaxSerialFrameLength + MaxHexEncodedFramesCountRemainder);
 
 type MaxSerialFrameLength = U128; // BLE can only process this
 type SerialFrameVec = Vec<u8, MaxSerialFrameLength>;
@@ -191,17 +195,17 @@ impl Message {
     /// Returns frames inteded to be send over our BLE connected which only is capable of
     /// correctly decode messages which contain only ASCII - don't ask, just read section 2.4.3 of
     /// RN4870-71 User Guide (DS50002466C)
-    // FIXME verify or use type arithmetics to count if U4 is correct
     pub fn as_cobs_encoded_frames_for_ble(
         &self,
         ble_serial_delimiter: char,
-    ) -> Result<Vec<SerialFrameVec, U4>, Error> {
+    ) -> Result<Vec<SerialFrameVec, MaxHexEncodedFramesCount>, Error> {
         let result = self.encode().unwrap();
-        let mut hex_result = Vec::<u8, MaxMessageLengthHexEncoded>::new(); // Maximum message length is 256 + cobs overhead
+        let mut hex_result = Vec::<u8, MaxMessageLengthHexEncoded>::new();
         hex_result.resize_default(result.len() * 2).unwrap();
         base16::encode_config_slice(&result, base16::EncodeLower, &mut hex_result);
-        let mut frames = Vec::<SerialFrameVec, U4>::new();
-        // FIXME wrap with delimiters
+
+        // wrap each chunk in a delimiter char
+        let mut frames = Vec::<SerialFrameVec, MaxHexEncodedFramesCount>::new();
         for chunk in hex_result.chunks_mut(MaxSerialFrameLength::USIZE - 2) {
             let mut frame = SerialFrameVec::new();
             frame.push(ble_serial_delimiter as u8).unwrap();
@@ -508,5 +512,21 @@ mod tests {
         decoded.resize_default(expected.len()).unwrap();
         base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
+    }
+
+    #[test]
+    fn test_max_message_length_as_cobs_encoded_frames_for_ble() {
+        let mut arr = [0u8; crate::overline::MaxLoraPayloadLength::USIZE];
+        thread_rng().try_fill(&mut arr[..]).unwrap();
+
+        let msg = Message::SendData {
+            data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&arr).unwrap(),
+        };
+
+        // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
+        let frames = msg
+            .as_cobs_encoded_frames_for_ble(BLE_SERIAL_DELIMITER)
+            .unwrap();
+        assert_eq!(frames.len(), MaxHexEncodedFramesCount::USIZE);
     }
 }
