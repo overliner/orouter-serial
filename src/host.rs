@@ -188,9 +188,11 @@ impl Message {
 
     /// Serializes messages using COBS encoding and DOES terminate it with COBS_SENTINEL
     /// Returned Vecs can be send as is over the wire, it itself is a valid host protocol packet
-    pub fn as_cobs_encoded_serial_frames(&self) -> Result<Vec<SerialFrameVec, U3>, Error> {
+    pub fn as_cobs_encoded_serial_frames(
+        &self,
+    ) -> Result<Vec<SerialFrameVec, MaxHexEncodedFramesCount>, Error> {
         let mut result = self.encode().unwrap();
-        let mut frames = Vec::<SerialFrameVec, U3>::new();
+        let mut frames = Vec::<SerialFrameVec, MaxHexEncodedFramesCount>::new();
         for chunk in result.chunks_mut(MaxSerialFrameLength::USIZE) {
             frames
                 .push(SerialFrameVec::from_slice(&chunk).unwrap())
