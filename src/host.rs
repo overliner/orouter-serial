@@ -13,6 +13,7 @@ use core::fmt::{Debug, Formatter, Result as FmtResult};
 use heapless::{consts::*, Vec};
 use typenum::{op, Unsigned, *};
 
+pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
 pub type MaxMessageQueueLength = U3;
 
@@ -191,17 +192,22 @@ impl Message {
     /// correctly decode messages which contain only ASCII - don't ask, just read section 2.4.3 of
     /// RN4870-71 User Guide (DS50002466C)
     // FIXME verify or use type arithmetics to count if U4 is correct
-    pub fn as_cobs_encoded_frames_for_ble(&self) -> Result<Vec<SerialFrameVec, U4>, Error> {
+    pub fn as_cobs_encoded_frames_for_ble(
+        &self,
+        ble_serial_delimiter: char,
+    ) -> Result<Vec<SerialFrameVec, U4>, Error> {
         let result = self.encode().unwrap();
         let mut hex_result = Vec::<u8, MaxMessageLengthHexEncoded>::new(); // Maximum message length is 256 + cobs overhead
         hex_result.resize_default(result.len() * 2).unwrap();
         base16::encode_config_slice(&result, base16::EncodeLower, &mut hex_result);
         let mut frames = Vec::<SerialFrameVec, U4>::new();
         // FIXME wrap with delimiters
-        for chunk in hex_result.chunks_mut(MaxSerialFrameLength::USIZE) {
-            frames
-                .push(SerialFrameVec::from_slice(&chunk).unwrap())
-                .unwrap()
+        for chunk in hex_result.chunks_mut(MaxSerialFrameLength::USIZE - 2) {
+            let mut frame = SerialFrameVec::new();
+            frame.push(ble_serial_delimiter as u8).unwrap();
+            frame.extend_from_slice(&chunk).unwrap();
+            frame.push(ble_serial_delimiter as u8).unwrap();
+            frames.push(frame).unwrap()
         }
         Ok(frames)
     }
@@ -494,14 +500,13 @@ mod tests {
     fn test_single_message_encoding_as_cobs_encoded_frames_for_ble() {
         let expected = &[0x03, 0xc2, 0xff, 0x00];
         let msg = Message::Configure { region: 255u8 };
-        let frames = msg.as_cobs_encoded_frames_for_ble().unwrap();
+        let hex_frames = msg.as_cobs_encoded_frames_for_ble('%').unwrap();
 
-        assert_eq!(frames.len(), 1);
-        let result = &frames[0];
+        assert_eq!(hex_frames.len(), 1);
+        let hex_frame = &hex_frames[0];
         let mut decoded = Vec::<u8, U4>::new();
         decoded.resize_default(expected.len()).unwrap();
-        base16::decode_slice(result.into(), &mut decoded).unwrap();
-        println!("encoded = {:02x?}", &result);
+        base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
     }
 }
