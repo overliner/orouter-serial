@@ -304,6 +304,10 @@ impl MessageReader {
         };
         Ok(())
     }
+
+    pub fn reset(&mut self) {
+        self.buf.clear();
+    }
 }
 
 impl Default for MessageReader {
