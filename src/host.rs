@@ -8,7 +8,7 @@
 //! for correct communication - especially [`Message::as_cobs_encoded_serial_frames`](enum.Message.html#method.as_cobs_encoded_serial_frames)
 //! method is crucial for communication to work as it makes sure the messages is COBS encoded
 //! AND split to maximum size frames suitable for the node's serial interface
-use core::convert::TryInto;
+use core::convert::{TryFrom, TryInto};
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use heapless::{consts::*, Vec};
 use typenum::{op, Unsigned, *};
@@ -55,6 +55,31 @@ impl From<base16::DecodeError> for Error {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+#[repr(u8)]
+pub enum StatusCode {
+    FrameReceived = 1,
+    CommandReceived = 2,
+    ErrUnknownCommmandReceived = 3,
+    ErrBusyLoraTransmitting = 4,
+    ErrMessageQueueFull = 5,
+}
+
+impl TryFrom<u8> for StatusCode {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(StatusCode::FrameReceived),
+            2 => Ok(StatusCode::CommandReceived),
+            3 => Ok(StatusCode::ErrUnknownCommmandReceived),
+            4 => Ok(StatusCode::ErrBusyLoraTransmitting),
+            5 => Ok(StatusCode::ErrMessageQueueFull),
+            _ => Err("Unknown StatusCode"),
+        }
+    }
+}
+
 /// Possible commands send over host protocol
 ///
 /// This enum contains both messages send exlusively to node or exclusively to host
@@ -81,7 +106,7 @@ pub enum Message {
         transmit_queue_size: u8,
     },
     /// Node reporting some error state to host
-    Error { code: u8 },
+    Status { code: StatusCode },
 }
 
 impl Debug for Message {
@@ -97,7 +122,7 @@ impl Debug for Message {
                 receive_queue_size,
                 transmit_queue_size,
             } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
-            Message::Error { code } => write!(f, "Error({:?})", code),
+            Message::Status { code } => write!(f, "Status({:?})", code),
         }
     }
 }
@@ -128,6 +153,9 @@ impl Message {
                 receive_queue_size: buf[6],
                 transmit_queue_size: buf[7],
             }),
+            0xc5 => Ok(Message::Status {
+                code: buf[1].try_into().unwrap(),
+            }),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -139,7 +167,7 @@ impl Message {
             Message::Configure { .. } => 1,
             Message::ReportRequest => 0,
             Message::Report { .. } => 7,
-            Message::Error { .. } => 1,
+            Message::Status { .. } => 1,
         };
 
         1 + variable_part_length
@@ -175,8 +203,8 @@ impl Message {
                 enc.push(&[*receive_queue_size]).unwrap();
                 enc.push(&[*transmit_queue_size]).unwrap();
             }
-            Message::Error { code } => {
-                enc.push(&[0xc5, *code]).unwrap();
+            Message::Status { code } => {
+                enc.push(&[0xc5, code.clone() as u8]).unwrap();
             }
         };
 
@@ -568,5 +596,17 @@ mod tests {
             .as_cobs_encoded_frames_for_ble(BLE_SERIAL_DELIMITER)
             .unwrap();
         assert_eq!(frames.len(), MaxHexEncodedFramesCount::USIZE);
+    }
+
+    #[test]
+    fn test_status_code_encoding() {
+        let msg = Message::Status {
+            code: StatusCode::ErrBusyLoraTransmitting,
+        };
+        let encoded = msg.encode().unwrap();
+        let mut mr = MessageReader::new();
+        let messages = mr.process_bytes(&encoded[..]).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0], msg);
     }
 }
