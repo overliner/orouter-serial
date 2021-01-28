@@ -9,7 +9,7 @@
 //! method is crucial for communication to work as it makes sure the messages is COBS encoded
 //! AND split to maximum size frames suitable for the node's serial interface
 use core::convert::{TryFrom, TryInto};
-use core::fmt::{Debug, Formatter, Result as FmtResult};
+use core::fmt;
 use heapless::{consts::*, Vec};
 use typenum::{op, Unsigned, *};
 
@@ -80,6 +80,24 @@ impl TryFrom<u8> for StatusCode {
     }
 }
 
+impl fmt::Display for StatusCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            StatusCode::FrameReceived => write!(f, "Single serial frame was successfuly received"),
+            StatusCode::CommandReceived => write!(f, "Command was successfully received"),
+            StatusCode::ErrUnknownCommmandReceived => write!(f, "Error: unknown command type"),
+            StatusCode::ErrBusyLoraTransmitting => write!(
+                f,
+                "Error: cannot execute sent command - radio is currently busy transmitting"
+            ),
+            StatusCode::ErrMessageQueueFull => write!(
+                f,
+                "Transmit queue is full, try sending SendData later again"
+            ),
+        }
+    }
+}
+
 /// Possible commands send over host protocol
 ///
 /// This enum contains both messages send exlusively to node or exclusively to host
@@ -109,8 +127,8 @@ pub enum Message {
     Status { code: StatusCode },
 }
 
-impl Debug for Message {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Message::SendData { data } => write!(f, "SendData {{ data: {:02x?} }}", data),
             Message::ReceiveData { data } => write!(f, "ReceiveData {{ data: {:02x?} }}", data),
