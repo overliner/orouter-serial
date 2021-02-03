@@ -10,6 +10,7 @@
 //! AND split to maximum size frames suitable for the node's serial interface
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
+use core::str::FromStr;
 use heapless::{consts::*, Vec};
 use typenum::{op, Unsigned, *};
 
@@ -141,6 +142,54 @@ impl fmt::Debug for Message {
                 transmit_queue_size,
             } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseMessageError {
+    MissingSeparator,
+    InvalidMessage,
+    InvalidHex(base16::DecodeError),
+    InvalidPayloadLength,
+}
+
+impl From<base16::DecodeError> for ParseMessageError {
+    fn from(e: base16::DecodeError) -> ParseMessageError {
+        ParseMessageError::InvalidHex(e)
+    }
+}
+
+impl FromStr for Message {
+    type Err = ParseMessageError;
+
+    fn from_str(s: &str) -> Result<Self, ParseMessageError> {
+        if !s.contains("@") {
+            return Err(ParseMessageError::MissingSeparator);
+        }
+
+        let mut iter = s.split(|c| c == '@');
+        let cmd_type = iter.next().unwrap();
+        let val = iter.next().unwrap();
+        match cmd_type {
+            "send" => {
+                let mut data = Vec::<u8, crate::overline::MaxLoraPayloadLength>::new();
+                let clean_val = match val.starts_with("0x") || val.starts_with("0X") {
+                    true => &val[2..],
+                    false => &val[..],
+                };
+                if let Err(_) = base16::decode_slice(clean_val, &mut data) {
+                    return Err(ParseMessageError::InvalidPayloadLength);
+                }
+
+                Ok(Message::SendData { data })
+            }
+            "status" => Ok(Message::ReportRequest),
+            "config" => {
+                let region = u8::from_str(val).unwrap();
+                Ok(Message::Configure { region })
+            }
+            _ => Err(ParseMessageError::InvalidMessage),
         }
     }
 }
