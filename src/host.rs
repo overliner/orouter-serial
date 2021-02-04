@@ -178,6 +178,7 @@ impl FromStr for Message {
                     true => &val[2..],
                     false => &val[..],
                 };
+                data.resize_default(clean_val.len() / 2).unwrap();
                 if let Err(_) = base16::decode_slice(clean_val, &mut data) {
                     return Err(ParseMessageError::InvalidPayloadLength);
                 }
@@ -675,5 +676,38 @@ mod tests {
         let messages = mr.process_bytes(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
+    }
+
+    #[test]
+    fn test_message_parse_status() {
+        let msg = "status@".parse::<Message>().unwrap();
+        assert_eq!(msg, Message::ReportRequest);
+    }
+
+    #[test]
+    fn test_message_parse_send_data() {
+        let msg = "send@0xAABB".parse::<Message>().unwrap();
+        assert_eq!(
+            msg,
+            Message::SendData {
+                data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&[0xaa, 0xbb])
+                    .unwrap()
+            }
+        );
+
+        let msg = "send@ccdd".parse::<Message>().unwrap();
+        assert_eq!(
+            msg,
+            Message::SendData {
+                data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&[0xcc, 0xdd])
+                    .unwrap()
+            }
+        );
+    }
+
+    #[test]
+    fn test_message_parse_config() {
+        let msg = "config@1".parse::<Message>().unwrap();
+        assert_eq!(msg, Message::Configure { region: 1 });
     }
 }
