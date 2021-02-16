@@ -152,6 +152,7 @@ pub enum ParseMessageError {
     InvalidMessage,
     InvalidHex(base16::DecodeError),
     InvalidPayloadLength,
+    PayloadTooLong,
 }
 
 impl From<base16::DecodeError> for ParseMessageError {
@@ -178,7 +179,11 @@ impl FromStr for Message {
                     true => &val[2..],
                     false => &val[..],
                 };
-                data.resize_default(clean_val.len() / 2).unwrap();
+                if clean_val.len() / 2 > crate::overline::MaxLoraPayloadLength::USIZE {
+                    return Err(ParseMessageError::PayloadTooLong);
+                }
+                data.resize_default(clean_val.len() / 2)
+                    .map_err(|_| ParseMessageError::InvalidPayloadLength)?;
                 if let Err(_) = base16::decode_slice(clean_val, &mut data) {
                     return Err(ParseMessageError::InvalidPayloadLength);
                 }
