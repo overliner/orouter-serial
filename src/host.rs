@@ -126,6 +126,14 @@ pub enum Message {
     },
     /// Node reporting some error state to host
     Status { code: StatusCode },
+    /// Request noise values from node
+    GetNoise,
+    /// Node reports noise values to host
+    Noise {
+        rssi_value: u8,
+        rssi_wideband: u8,
+        snr_value: u8,
+    },
 }
 
 impl fmt::Debug for Message {
@@ -142,6 +150,8 @@ impl fmt::Debug for Message {
                 transmit_queue_size,
             } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
+            Message::GetNoise => write!(f, "GetNoise"),
+            Message::Noise { rssi_value, rssi_wideband, snr_value } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?}, snr_value: {:?} }}", rssi_value, rssi_wideband, snr_value)
         }
     }
 }
@@ -195,6 +205,7 @@ impl FromStr for Message {
                 let region = u8::from_str(val).unwrap();
                 Ok(Message::Configure { region })
             }
+            "get_noise" => Ok(Message::GetNoise),
             _ => Err(ParseMessageError::InvalidMessage),
         }
     }
@@ -229,6 +240,12 @@ impl Message {
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().unwrap(),
             }),
+            0xc6 => Ok(Message::GetNoise),
+            0xc7 => Ok(Message::Noise {
+                rssi_value: buf[1],
+                rssi_wideband: buf[2],
+                snr_value: buf[3],
+            }),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -241,6 +258,8 @@ impl Message {
             Message::ReportRequest => 0,
             Message::Report { .. } => 7,
             Message::Status { .. } => 1,
+            Message::GetNoise => 0,
+            Message::Noise { .. } => 3,
         };
 
         1 + variable_part_length
@@ -278,6 +297,17 @@ impl Message {
             }
             Message::Status { code } => {
                 enc.push(&[0xc5, code.clone() as u8]).unwrap();
+            }
+            Message::GetNoise => enc.push(&[0xc6]).unwrap(),
+            Message::Noise {
+                rssi_value,
+                rssi_wideband,
+                snr_value,
+            } => {
+                enc.push(&[0xc7]).unwrap();
+                enc.push(&[*rssi_value]).unwrap();
+                enc.push(&[*rssi_wideband]).unwrap();
+                enc.push(&[*snr_value]).unwrap();
             }
         };
 
