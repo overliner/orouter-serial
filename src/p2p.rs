@@ -1,6 +1,6 @@
 //! Defines and implements protocol used on physical radio layer (now using LoRa)
 //!
-//! Logical Overline message [TODO link]() length can be 512 B, but LoRa can only transmit 255B in
+//! Logical [crate::overline::OverlineMessage] length can be [crate::overline::MaxLoraPayloadLength](255 B), but LoRa can only transmit 255B in
 //! one message. MessageSlicer takes care of splitting message to appropriate number of parts with
 //! necessary header information. On the receiving end these has to be assembled back to a logical
 //! message - this is job of MessagePool
@@ -68,7 +68,7 @@ pub enum Error {
 /// Messages in vector under each prefix key are inserted at the correct index - are kept sorted
 /// example of the map
 /// {
-///     '4B prefix': [[part_1], [part_2], [part3]],
+///     '4B prefix': \[\[part_1\], \[part_2\], \[part3\]\],
 ///     ...
 ///     ...
 /// }

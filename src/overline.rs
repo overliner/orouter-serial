@@ -1,4 +1,9 @@
-use heapless::{consts::*, Vec};
+//! Defines Overline protocol
+//!
+//! Describes types and structure of logical overline message - how it is represented in the
+//! physical LoRa message. Defines utility struct [OverlineMessageStore] which enabled
+//! implementation of overline message retransmission rules
+use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
 use typenum::Unsigned;
 
 pub type MaxLoraPayloadLength = U255;
@@ -48,6 +53,52 @@ impl OverlineMessage {
             0x15 => Ok(OverlineMessageType::Other),
             _ => Err(Error::UnknownType),
         }
+    }
+}
+
+/// Describes outcome of attempt to [`OverlineMessageStore::recv`]
+pub enum OverlineStoreRecvOutcome {
+    /// hash was not in the short term queue, scheduled for retransmission
+    NotSeenScheduled(u8),
+    /// message was seen, removed from short term queue
+    Seen,
+    /// message was a command
+    Command,
+    Todo, // TODO remove, used for blank implementation
+}
+
+/// Store is responsible for applying rules for storing and possible retransmission of overline
+/// messages seen by the node
+pub struct OverlineMessageStore {
+    /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
+    tick_duration: u32,
+    short_term_queue: FnvIndexMap<OverlineMessageHash, OverlineMessage, U256>,
+    long_term_queue: FnvIndexSet<OverlineMessageHash, U1024>,
+}
+
+impl OverlineMessageStore {
+    /// used when node received a message
+    pub fn recv(&mut self, message: OverlineMessage) -> Result<OverlineStoreRecvOutcome, ()> {
+        let hash = message.hash().unwrap();
+        // if we have seen this, immediately remove it from short term queue and store in long term queue
+        if self.short_term_queue.contains_key(&hash) {
+            todo!();
+            return Ok(OverlineStoreRecvOutcome::Seen);
+        }
+
+        // if not, store hash and body and enqueue to short term queue with a random timeout
+        self.short_term_queue
+            .insert(message.hash().unwrap(), message)
+            .unwrap();
+
+        Ok(OverlineStoreRecvOutcome::Todo)
+    }
+
+    /// supposed to be driven by a timer, if current tick >= some of the scheduled ticks in the
+    /// short term queue it means, the message was not seen during the timeout interval and should
+    /// be scheduled for retransmission into the tx queue
+    pub fn tick_try_send(&mut self) -> Result<(), ()> {
+        todo!()
     }
 }
 
