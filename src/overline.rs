@@ -34,6 +34,10 @@ pub enum MessageType {
 pub struct Message(Vec<u8, MaxLoraPayloadLength>);
 
 impl Message {
+    pub fn new(data: Vec<u8, MaxLoraPayloadLength>) -> Self {
+        Message(data)
+    }
+
     pub fn try_from_hash_data(hash: MessageHash, data: MessageDataPart) -> Result<Self, Error> {
         if hash.len() != MessageHashLength::USIZE {
             return Err(Error::InvalidMessage);
