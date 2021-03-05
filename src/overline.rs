@@ -1,26 +1,26 @@
 //! Defines Overline protocol
 //!
 //! Describes types and structure of logical overline message - how it is represented in the
-//! physical LoRa message. Defines utility struct [OverlineMessageStore] which enabled
+//! physical LoRa message. Defines utility struct [MessageStore] which enabled
 //! implementation of overline message retransmission rules
 use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
 use typenum::{op, Unsigned, *};
 
 pub type MaxLoraPayloadLength = U255;
-pub type OverlineMessageHashLength = U16;
-pub type OverlineMessageMaxDataLength = op!(MaxLoraPayloadLength - OverlineMessageHashLength);
-pub type OverlineMessageDataPart = Vec<u8, OverlineMessageMaxDataLength>; // FIXME better naming
-pub type OverlineMessageHash = Vec<u8, OverlineMessageHashLength>;
+pub type MessageHashLength = U16;
+pub type MessageMaxDataLength = op!(MaxLoraPayloadLength - MessageHashLength);
+pub type MessageDataPart = Vec<u8, MessageMaxDataLength>; // FIXME better naming
+pub type MessageHash = Vec<u8, MessageHashLength>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    InvalidOverlineMessage,
+    InvalidMessage,
     UnknownType,
 }
 
 // FIXME define these according to the design document
 #[derive(Debug, PartialEq)]
-pub enum OverlineMessageType {
+pub enum MessageType {
     Challenge,
     Proof,
     Flush,
@@ -31,68 +31,65 @@ pub enum OverlineMessageType {
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
 #[derive(Debug)]
-pub struct OverlineMessage(Vec<u8, MaxLoraPayloadLength>);
+pub struct Message(Vec<u8, MaxLoraPayloadLength>);
 
-impl OverlineMessage {
-    pub fn try_from_hash_data(
-        hash: OverlineMessageHash,
-        data: OverlineMessageDataPart,
-    ) -> Result<Self, Error> {
-        if hash.len() != OverlineMessageHashLength::USIZE {
-            return Err(Error::InvalidOverlineMessage);
+impl Message {
+    pub fn try_from_hash_data(hash: MessageHash, data: MessageDataPart) -> Result<Self, Error> {
+        if hash.len() != MessageHashLength::USIZE {
+            return Err(Error::InvalidMessage);
         }
 
         if hash.len() + data.len() > MaxLoraPayloadLength::USIZE {
-            return Err(Error::InvalidOverlineMessage);
+            return Err(Error::InvalidMessage);
         }
 
         let mut vec = Vec::new();
         vec.extend_from_slice(&hash[0..])
-            .map_err(|_| Error::InvalidOverlineMessage)?;
+            .map_err(|_| Error::InvalidMessage)?;
         vec.extend_from_slice(&data[0..])
-            .map_err(|_| Error::InvalidOverlineMessage)?;
+            .map_err(|_| Error::InvalidMessage)?;
 
-        Ok(OverlineMessage(vec))
+        Ok(Message(vec))
     }
 
-    pub fn into_hash_data(self) -> Result<(OverlineMessageHash, OverlineMessageDataPart), Error> {
+    pub fn into_hash_data(self) -> Result<(MessageHash, MessageDataPart), Error> {
         let hash = self.hash()?;
         let data_part = self.data_part()?;
         Ok((hash, data_part))
     }
 
-    pub fn hash(&self) -> Result<OverlineMessageHash, Error> {
-        if self.0.len() < OverlineMessageHashLength::USIZE {
-            return Err(Error::InvalidOverlineMessage);
+    pub fn hash(&self) -> Result<MessageHash, Error> {
+        if self.0.len() < MessageHashLength::USIZE {
+            return Err(Error::InvalidMessage);
         }
 
-        match OverlineMessageHash::from_slice(&self.0[0..OverlineMessageHashLength::USIZE]) {
+        match MessageHash::from_slice(&self.0[0..MessageHashLength::USIZE]) {
             Ok(h) => Ok(h),
-            Err(()) => Err(Error::InvalidOverlineMessage),
+            Err(()) => Err(Error::InvalidMessage),
         }
     }
 
-    pub fn data_part(&self) -> Result<OverlineMessageDataPart, Error> {
-        match OverlineMessageDataPart::from_slice(&self.0[OverlineMessageHashLength::USIZE..]) {
+    pub fn data_part(&self) -> Result<MessageDataPart, Error> {
+        match MessageDataPart::from_slice(&self.0[MessageHashLength::USIZE..]) {
             Ok(h) => Ok(h),
-            Err(()) => Err(Error::InvalidOverlineMessage),
+            Err(()) => Err(Error::InvalidMessage),
         }
     }
 
-    pub fn typ(&self) -> Result<OverlineMessageType, Error> {
-        match self.0[OverlineMessageHashLength::USIZE] {
-            0x11 => Ok(OverlineMessageType::Challenge),
-            0x12 => Ok(OverlineMessageType::Proof),
-            0x13 => Ok(OverlineMessageType::Flush),
-            0x14 => Ok(OverlineMessageType::Receipt),
-            0x15 => Ok(OverlineMessageType::Other),
+    pub fn typ(&self) -> Result<MessageType, Error> {
+        match self.0[MessageHashLength::USIZE] {
+            0x11 => Ok(MessageType::Challenge),
+            0x12 => Ok(MessageType::Proof),
+            0x13 => Ok(MessageType::Flush),
+            0x14 => Ok(MessageType::Receipt),
+            0x15 => Ok(MessageType::Other),
             _ => Err(Error::UnknownType),
         }
     }
 }
 
-/// Describes outcome of attempt to [`OverlineMessageStore::recv`]
-pub enum OverlineStoreRecvOutcome {
+/// Describes outcome of attempt to [`MessageStore::recv`]
+pub enum StoreRecvOutcome {
     /// hash was not in the short term queue, scheduled for retransmission
     NotSeenScheduled(u8),
     /// message was seen, removed from short term queue
@@ -105,25 +102,25 @@ pub enum OverlineStoreRecvOutcome {
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
 #[derive(Default)]
-pub struct OverlineMessageStore {
+pub struct MessageStore {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u32,
-    short_term_queue: FnvIndexMap<OverlineMessageHash, OverlineMessage, U256>,
-    long_term_queue: FnvIndexSet<OverlineMessageHash, U1024>,
+    short_term_queue: FnvIndexMap<MessageHash, Message, U256>,
+    long_term_queue: FnvIndexSet<MessageHash, U1024>,
 }
 
-impl OverlineMessageStore {
+impl MessageStore {
     pub fn new() -> Self {
-        OverlineMessageStore::default()
+        MessageStore::default()
     }
 
     /// used when node received a message
-    pub fn recv(&mut self, message: OverlineMessage) -> Result<OverlineStoreRecvOutcome, ()> {
+    pub fn recv(&mut self, message: Message) -> Result<StoreRecvOutcome, ()> {
         let hash = message.hash().unwrap();
         // if we have seen this, immediately remove it from short term queue and store in long term queue
         if self.short_term_queue.contains_key(&hash) {
             todo!();
-            return Ok(OverlineStoreRecvOutcome::Seen);
+            return Ok(StoreRecvOutcome::Seen);
         }
 
         // if not, store hash and body and enqueue to short term queue with a random timeout
@@ -131,7 +128,7 @@ impl OverlineMessageStore {
             .insert(message.hash().unwrap(), message)
             .unwrap();
 
-        Ok(OverlineStoreRecvOutcome::Todo)
+        Ok(StoreRecvOutcome::Todo)
     }
 
     /// supposed to be driven by a timer, if current tick >= some of the scheduled ticks in the
@@ -148,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_hash_ok() {
-        let m = OverlineMessage(
+        let m = Message(
             Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0xff, 0xff,
@@ -156,7 +153,7 @@ mod tests {
             .unwrap(),
         );
         assert_eq!(
-            OverlineMessageHash::from_slice(&[
+            MessageHash::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc
             ])
@@ -167,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_typ_err() {
-        let m = OverlineMessage(
+        let m = Message(
             Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0xff, 0xff,
@@ -179,14 +176,14 @@ mod tests {
 
     #[test]
     fn test_typ_ok() {
-        let m = OverlineMessage(
+        let m = Message(
             Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0x11, 0xff,
             ])
             .unwrap(),
         );
-        assert_eq!(OverlineMessageType::Challenge, m.typ().unwrap())
+        assert_eq!(MessageType::Challenge, m.typ().unwrap())
     }
 
     #[test]
@@ -203,9 +200,9 @@ mod tests {
         ])
         .unwrap();
 
-        let m = OverlineMessage::try_from_hash_data(hash.clone(), data.clone()).unwrap();
+        let m = Message::try_from_hash_data(hash.clone(), data.clone()).unwrap();
         assert_eq!(hash, m.hash().unwrap());
-        assert_eq!(OverlineMessageType::Other, m.typ().unwrap());
+        assert_eq!(MessageType::Other, m.typ().unwrap());
 
         // m moves here
         let (hash_new, data_new) = m.into_hash_data().unwrap();
