@@ -9,8 +9,7 @@ use typenum::{op, Unsigned, *};
 pub type MaxLoraPayloadLength = U255;
 pub type OverlineMessageHashLength = U16;
 pub type OverlineMessageMaxDataLength = op!(MaxLoraPayloadLength - OverlineMessageHashLength);
-pub type OverlineMessageData = Vec<u8, MaxLoraPayloadLength>;
-pub type OverlineMessageDataPart = Vec<u8, OverlineMessageHashLength>; // FIXME better naming
+pub type OverlineMessageDataPart = Vec<u8, OverlineMessageMaxDataLength>; // FIXME better naming
 pub type OverlineMessageHash = Vec<u8, OverlineMessageHashLength>;
 
 #[derive(Debug, PartialEq)]
@@ -32,18 +31,22 @@ pub enum OverlineMessageType {
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
 #[derive(Debug)]
-pub struct OverlineMessage(pub OverlineMessageData);
+pub struct OverlineMessage(Vec<u8, MaxLoraPayloadLength>);
 
 impl OverlineMessage {
     pub fn try_from_hash_data(
         hash: OverlineMessageHash,
         data: OverlineMessageDataPart,
     ) -> Result<Self, Error> {
+        if hash.len() != OverlineMessageHashLength::USIZE {
+            return Err(Error::InvalidOverlineMessage);
+        }
+
         if hash.len() + data.len() > MaxLoraPayloadLength::USIZE {
             return Err(Error::InvalidOverlineMessage);
         }
 
-        let mut vec = OverlineMessageData::new();
+        let mut vec = Vec::new();
         vec.extend_from_slice(&hash[0..])
             .map_err(|_| Error::InvalidOverlineMessage)?;
         vec.extend_from_slice(&data[0..])
@@ -52,9 +55,7 @@ impl OverlineMessage {
         Ok(OverlineMessage(vec))
     }
 
-    pub fn into_hash_data_tuple(
-        self,
-    ) -> Result<(OverlineMessageHash, OverlineMessageDataPart), Error> {
+    pub fn into_hash_data(self) -> Result<(OverlineMessageHash, OverlineMessageDataPart), Error> {
         let hash = self.hash()?;
         let data_part = self.data_part()?;
         Ok((hash, data_part))
@@ -148,7 +149,7 @@ mod tests {
     #[test]
     fn test_hash_ok() {
         let m = OverlineMessage(
-            OverlineMessageData::from_slice(&[
+            Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0xff, 0xff,
             ])
@@ -167,7 +168,7 @@ mod tests {
     #[test]
     fn test_typ_err() {
         let m = OverlineMessage(
-            OverlineMessageData::from_slice(&[
+            Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0xff, 0xff,
             ])
@@ -179,12 +180,36 @@ mod tests {
     #[test]
     fn test_typ_ok() {
         let m = OverlineMessage(
-            OverlineMessageData::from_slice(&[
+            Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                 0xbb, 0xcc, 0x11, 0xff,
             ])
             .unwrap(),
         );
         assert_eq!(OverlineMessageType::Challenge, m.typ().unwrap())
+    }
+
+    #[test]
+    fn test_try_from_into_hash_data() {
+        let hash = Vec::<u8, U16>::from_slice(&[
+            // hash
+            0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10,
+            0xaa, 0x10,
+        ])
+        .unwrap();
+        let data = Vec::<u8, U239>::from_slice(&[
+            // type (other) + some data ->
+            0x15, 0xda, 0x1a, 0xda, 0x1a,
+        ])
+        .unwrap();
+
+        let m = OverlineMessage::try_from_hash_data(hash.clone(), data.clone()).unwrap();
+        assert_eq!(hash, m.hash().unwrap());
+        assert_eq!(OverlineMessageType::Other, m.typ().unwrap());
+
+        // m moves here
+        let (hash_new, data_new) = m.into_hash_data().unwrap();
+        assert_eq!(hash, hash_new);
+        assert_eq!(data, data_new);
     }
 }
