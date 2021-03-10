@@ -4,6 +4,7 @@
 //! physical LoRa message. Defines utility struct [MessageStore] which enabled
 //! implementation of overline message retransmission rules
 use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
+use rand::prelude::*;
 use typenum::{op, Unsigned, *};
 
 pub type MaxLoraPayloadLength = U255;
@@ -15,6 +16,7 @@ pub type MessageHash = Vec<u8, MessageHashLength>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidMessage,
+    CannotReceive,
     UnknownType,
 }
 
@@ -30,9 +32,10 @@ pub enum MessageType {
 
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message(Vec<u8, MaxLoraPayloadLength>);
 
+// FIXME implement into host::Message::SendData and host::Message::ReceiveData
 impl Message {
     pub fn new(data: Vec<u8, MaxLoraPayloadLength>) -> Self {
         Message(data)
@@ -93,46 +96,68 @@ impl Message {
 }
 
 /// Describes outcome of attempt to [`MessageStore::recv`]
+#[derive(Debug, PartialEq)]
 pub enum StoreRecvOutcome {
     /// hash was not in the short term queue, scheduled for retransmission
-    NotSeenScheduled(u8),
+    NotSeenScheduled(u16),
     /// message was seen, removed from short term queue
     Seen,
     /// message was a command
     Command,
-    Todo, // TODO remove, used for blank implementation
 }
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
-#[derive(Default)]
 pub struct MessageStore {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u32,
     short_term_queue: FnvIndexMap<MessageHash, Message, U256>,
     long_term_queue: FnvIndexSet<MessageHash, U1024>,
+    rng: SmallRng,
 }
 
 impl MessageStore {
-    pub fn new() -> Self {
-        MessageStore::default()
+    pub fn new(initial_seed: u64) -> Self {
+        MessageStore {
+            tick_duration: Default::default(),
+            short_term_queue: Default::default(),
+            long_term_queue: Default::default(),
+            rng: SmallRng::seed_from_u64(initial_seed),
+        }
     }
 
     /// used when node received a message
-    pub fn recv(&mut self, message: Message) -> Result<StoreRecvOutcome, ()> {
+    pub fn recv(&mut self, message: Message) -> Result<StoreRecvOutcome, Error> {
         let hash = message.hash().unwrap();
-        // if we have seen this, immediately remove it from short term queue and store in long term queue
+        // if we have seen this, and is in short term queue, immediately remove it from short term queue and store in long term queue
         if self.short_term_queue.contains_key(&hash) {
-            todo!();
+            self.short_term_queue.remove(&hash).unwrap(); // this should never panic because of if condition above
+
+            // TODO fix rotation when long_term_queue is full
+            self.long_term_queue
+                .insert(hash)
+                .map_err(|_| Error::CannotReceive)?;
+            return Ok(StoreRecvOutcome::Seen);
+        }
+
+        if self.long_term_queue.contains(&hash) {
             return Ok(StoreRecvOutcome::Seen);
         }
 
         // if not, store hash and body and enqueue to short term queue with a random timeout
-        self.short_term_queue
+        match self
+            .short_term_queue
             .insert(message.hash().unwrap(), message)
-            .unwrap();
-
-        Ok(StoreRecvOutcome::Todo)
+        {
+            Ok(Some(_)) => unreachable!(),
+            Ok(None) => {
+                // TODO, stored, now schedule
+                // TODO fill in generated interval
+                let after_ticks = self.get_interval();
+                Ok(StoreRecvOutcome::NotSeenScheduled(after_ticks))
+            }
+            Err(_) => Err(Error::CannotReceive),
+        }
     }
 
     /// supposed to be driven by a timer, if current tick >= some of the scheduled ticks in the
@@ -140,6 +165,11 @@ impl MessageStore {
     /// be scheduled for retransmission into the tx queue
     pub fn tick_try_send(&mut self) -> Result<(), ()> {
         todo!()
+    }
+
+    // will produce 0-999, this will need tuning when timer set up
+    fn get_interval(&mut self) -> u16 {
+        (self.rng.next_u32() % 1000) as u16
     }
 }
 
@@ -212,5 +242,44 @@ mod tests {
         let (hash_new, data_new) = m.into_hash_data().unwrap();
         assert_eq!(hash, hash_new);
         assert_eq!(data, data_new);
+    }
+
+    mod store {
+        use super::*;
+
+        #[test]
+        fn test_store_receive_not_seen() {
+            let mut store = MessageStore::new(0x1111_2222_3333_4444);
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+
+            let outcome = store.recv(m).unwrap();
+            assert_eq!(StoreRecvOutcome::NotSeenScheduled(555), outcome); // 555 is first value generated from the provided seed
+        }
+
+        #[test]
+        fn test_store_receive_seen() {
+            let mut store = MessageStore::new(0x1111_2222_3333_4444);
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+            let m_clone = m.clone();
+            let m_clone_2 = m.clone();
+
+            let _ = store.recv(m).unwrap();
+            let outcome = store.recv(m_clone).unwrap();
+            assert_eq!(StoreRecvOutcome::Seen, outcome);
+            let outcome = store.recv(m_clone_2).unwrap();
+            assert_eq!(StoreRecvOutcome::Seen, outcome);
+        }
     }
 }
