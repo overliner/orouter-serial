@@ -3,7 +3,7 @@
 //! Describes types and structure of logical overline message - how it is represented in the
 //! physical LoRa message. Defines utility struct [MessageStore] which enabled
 //! implementation of overline message retransmission rules
-use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
+use heapless::{consts::*, FnvIndexSet, LinearMap, Vec};
 use rand::prelude::*;
 use typenum::{op, Unsigned, *};
 
@@ -108,11 +108,12 @@ pub enum StoreRecvOutcome {
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
+#[derive(Debug)]
 pub struct MessageStore {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u32,
-    short_term_queue: FnvIndexMap<MessageHash, Message, U256>,
-    long_term_queue: FnvIndexSet<MessageHash, U1024>,
+    short_term_queue: LinearMap<MessageHash, Message, U64>,
+    long_term_queue: FnvIndexSet<MessageHash, U512>,
     rng: SmallRng,
 }
 
