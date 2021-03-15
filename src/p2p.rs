@@ -16,7 +16,7 @@
 
 use heapless::{FnvIndexMap, Vec};
 use rand::prelude::*;
-use typenum::{consts::*, op, Unsigned, *};
+use typenum::{consts::*, op, Unsigned};
 
 /// P2pMessagePart represents raw chunk of data received using radio chip.
 /// It uses following structure:

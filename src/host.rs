@@ -12,7 +12,7 @@ use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::str::FromStr;
 use heapless::{consts::*, Vec};
-use typenum::{op, Unsigned, *};
+use typenum::{op, Unsigned};
 
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;

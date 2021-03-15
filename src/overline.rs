@@ -5,7 +5,7 @@
 //! implementation of overline message retransmission rules
 use heapless::{consts::*, FnvIndexSet, LinearMap, Vec};
 use rand::prelude::*;
-use typenum::{op, Unsigned, *};
+use typenum::{op, Unsigned};
 
 pub type MaxLoraPayloadLength = U255;
 pub type MessageHashLength = U16;

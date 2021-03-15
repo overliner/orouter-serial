@@ -8,9 +8,9 @@ license = "MIT"
 [dependencies]
 base16 = { version = "0.2.1", default-features = false }
 cobs = { version = "0.1.4", default-features = false }
-heapless = "0.5.6"
+heapless = "0.6.1"
 rand = { version = "0.7.3", default-features = false, features = ["small_rng"]}
-typenum = "1.12.0"
+typenum = "1.13.0"
 
 [dev-dependencies]
 rand = { version = "0.7.3"}
