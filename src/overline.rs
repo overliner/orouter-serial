@@ -3,7 +3,7 @@
 //! Describes types and structure of logical overline message - how it is represented in the
 //! physical LoRa message. Defines utility struct [MessageStore] which enabled
 //! implementation of overline message retransmission rules
-use heapless::{consts::*, FnvIndexSet, LinearMap, Vec};
+use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
 use rand::prelude::*;
 use typenum::{op, Unsigned};
 
@@ -112,8 +112,14 @@ pub enum StoreRecvOutcome {
 pub struct MessageStore {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u32,
-    short_term_queue: LinearMap<MessageHash, Message, U64>,
-    long_term_queue: FnvIndexSet<MessageHash, U512>,
+    #[cfg(feature = "debug")]
+    short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, U16>,
+    #[cfg(not(feature = "debug"))]
+    short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, U128>,
+    #[cfg(feature = "debug")]
+    long_term_queue: FnvIndexSet<MessageHash, U1024>,
+    #[cfg(not(feature = "debug"))]
+    long_term_queue: FnvIndexSet<MessageHash, U1024>,
     rng: SmallRng,
 }
 
@@ -129,7 +135,7 @@ impl MessageStore {
 
     /// used when node received a message
     pub fn recv(&mut self, message: Message) -> Result<StoreRecvOutcome, Error> {
-        let hash = message.hash().unwrap();
+        let (hash, data) = message.into_hash_data()?;
         // if we have seen this, and is in short term queue, immediately remove it from short term queue and store in long term queue
         if self.short_term_queue.contains_key(&hash) {
             self.short_term_queue.remove(&hash).unwrap(); // this should never panic because of if condition above
@@ -146,14 +152,10 @@ impl MessageStore {
         }
 
         // if not, store hash and body and enqueue to short term queue with a random timeout
-        match self
-            .short_term_queue
-            .insert(message.hash().unwrap(), message)
-        {
+        match self.short_term_queue.insert(hash, data) {
             Ok(Some(_)) => unreachable!(),
             Ok(None) => {
                 // TODO, stored, now schedule
-                // TODO fill in generated interval
                 let after_ticks = self.get_interval();
                 Ok(StoreRecvOutcome::NotSeenScheduled(after_ticks))
             }
