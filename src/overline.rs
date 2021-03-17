@@ -117,7 +117,7 @@ pub struct MessageStore {
     #[cfg(not(feature = "debug"))]
     short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, U64>,
     #[cfg(feature = "debug")]
-    long_term_queue: FnvIndexSet<MessageHash, U1024>,
+    long_term_queue: FnvIndexSet<MessageHash, U64>,
     #[cfg(not(feature = "debug"))]
     long_term_queue: FnvIndexSet<MessageHash, U1024>,
     rng: SmallRng,
