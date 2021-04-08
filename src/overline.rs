@@ -3,7 +3,9 @@
 //! Describes types and structure of logical overline message - how it is represented in the
 //! physical LoRa message. Defines utility struct [MessageStore] which enabled
 //! implementation of overline message retransmission rules
-use heapless::{consts::*, FnvIndexMap, FnvIndexSet, Vec};
+use core::cmp::{Ord, Ordering};
+
+use heapless::{consts::*, FnvIndexSet, Vec};
 use rand::prelude::*;
 use typenum::{op, Unsigned};
 
@@ -32,7 +34,7 @@ pub enum MessageType {
 
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Message(Vec<u8, MaxLoraPayloadLength>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
@@ -106,68 +108,155 @@ pub enum StoreRecvOutcome {
     Command,
 }
 
+/// Wraps message parts (hash and data) for storing them ordered in the short term queue
+#[derive(Eq, Debug)]
+pub struct ShortTermQueueItem {
+    /// determines in how many ticks the item expires for the short term queue
+    when: u16,
+    message_hash: MessageHash,
+    message_data_part: MessageDataPart,
+}
+
+impl Ord for ShortTermQueueItem {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.when.cmp(&other.when)
+    }
+}
+
+impl PartialOrd for ShortTermQueueItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for ShortTermQueueItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.when == other.when
+    }
+}
+
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
 #[derive(Debug)]
-pub struct MessageStore {
+pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
-    tick_duration: u32,
+    tick_duration: u16,
+    tick_count: u16,
     #[cfg(feature = "debug")]
-    short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, U16>,
+    short_term_queue: Vec<Option<ShortTermQueueItem>, U16>,
     #[cfg(not(feature = "debug"))]
-    short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, U64>,
+    short_term_queue: Vec<Option<ShortTermQueueItem>, U64>,
     #[cfg(feature = "debug")]
     long_term_queue: FnvIndexSet<MessageHash, U64>,
     #[cfg(not(feature = "debug"))]
-    long_term_queue: FnvIndexSet<MessageHash, U1024>,
-    rng: SmallRng,
+    long_term_queue: FnvIndexSet<MessageHash, U512>,
+    rng: R,
 }
 
-impl MessageStore {
-    pub fn new(initial_seed: u64) -> Self {
+impl<R: RngCore> MessageStore<R> {
+    pub fn new(rng: R) -> Self {
         MessageStore {
             tick_duration: Default::default(),
+            tick_count: Default::default(),
             short_term_queue: Default::default(),
             long_term_queue: Default::default(),
-            rng: SmallRng::seed_from_u64(initial_seed),
+            rng,
         }
     }
 
     /// used when node received a message
     pub fn recv(&mut self, message: Message) -> Result<StoreRecvOutcome, Error> {
-        let (hash, data) = message.into_hash_data()?;
+        let (message_hash, message_data_part) = message.into_hash_data()?;
         // if we have seen this, and is in short term queue, immediately remove it from short term queue and store in long term queue
-        if self.short_term_queue.contains_key(&hash) {
-            self.short_term_queue.remove(&hash).unwrap(); // this should never panic because of if condition above
+        let mut idx: usize = 0;
+        let mut remove_idx = None;
+        for item in &self.short_term_queue {
+            if let Some(item) = item {
+                if item.message_hash == message_hash {
+                    remove_idx = Some(idx);
+                    break;
+                }
+            }
+            idx += 1;
+        }
 
-            // TODO fix rotation when long_term_queue is full
+        if let Some(remove_idx) = remove_idx {
+            // TODO solve short term queue full edge case
+            self.short_term_queue
+                .push(None)
+                .map_err(|_| Error::CannotReceive)?;
+            self.short_term_queue.swap_remove(remove_idx);
+            // TODO fix rotation when long_term_queue is full - use HB and try recent() before full
+            // iteration?
             self.long_term_queue
-                .insert(hash)
+                .insert(message_hash)
                 .map_err(|_| Error::CannotReceive)?;
             return Ok(StoreRecvOutcome::Seen);
         }
 
-        if self.long_term_queue.contains(&hash) {
+        if self.long_term_queue.contains(&message_hash) {
             return Ok(StoreRecvOutcome::Seen);
         }
 
         // if not, store hash and body and enqueue to short term queue with a random timeout
-        match self.short_term_queue.insert(hash, data) {
-            Ok(Some(_)) => unreachable!(),
-            Ok(None) => {
-                // TODO, stored, now schedule
-                let after_ticks = self.get_interval();
-                Ok(StoreRecvOutcome::NotSeenScheduled(after_ticks))
-            }
-            Err(_) => Err(Error::CannotReceive),
-        }
+        let when = self.get_interval();
+        let item = ShortTermQueueItem {
+            message_hash,
+            message_data_part,
+            when,
+        };
+        self.short_term_queue
+            .push(Some(item))
+            .map_err(|_| Error::CannotReceive)?;
+        Ok(StoreRecvOutcome::NotSeenScheduled(when))
     }
 
     /// supposed to be driven by a timer, if current tick >= some of the scheduled ticks in the
     /// short term queue it means, the message was not seen during the timeout interval and should
     /// be scheduled for retransmission into the tx queue
-    pub fn tick_try_send(&mut self) -> Result<(), ()> {
-        todo!()
+    pub fn tick_try_send(&mut self) -> Result<Vec<Message, U3>, ()> {
+        let mut result = Vec::<Message, U3>::new();
+        let mut idx: usize = 0;
+        let mut remove_indices = Vec::<usize, U3>::new();
+        println!("tick_try_send() self.tick_count = {}", self.tick_count);
+
+        // FIXME only gather indices and swap_remove them one by on in other cycle
+        for item in &self.short_term_queue {
+            if let Some(item) = item {
+                // TODO if the short_term_queue is sorted, then we could break early here
+                if item.when == self.tick_count {
+                    // TODO remove from queue
+                    result
+                        .push(
+                            Message::try_from_hash_data(
+                                item.message_hash.clone(),
+                                item.message_data_part.clone(),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                    remove_indices.push(idx).unwrap();
+                }
+            }
+            idx += 1;
+        }
+
+        println!(
+            "tick_try_send() remove_indices = {:?}, stq = {:?}",
+            remove_indices, self.short_term_queue
+        );
+        for idx in &remove_indices {
+            self.short_term_queue.push(None).unwrap();
+            self.short_term_queue.swap_remove(*idx).unwrap();
+        }
+
+        if self.tick_count == 999 {
+            self.tick_count = 0;
+        } else {
+            self.tick_count += 1;
+        }
+
+        Ok(result)
     }
 
     // will produce 0-999, this will need tuning when timer set up
@@ -250,9 +339,52 @@ mod tests {
     mod store {
         use super::*;
 
+        use rand::Error;
+
+        struct TestingRng(u8, Vec<u64, U64>);
+
+        impl RngCore for TestingRng {
+            fn next_u32(&mut self) -> u32 {
+                self.next_u64() as u32
+            }
+
+            fn next_u64(&mut self) -> u64 {
+                let next = &self.1[self.0 as usize];
+                if self.0 == 63 {
+                    self.0 = 0;
+                } else {
+                    self.0 += 1;
+                }
+                *next
+            }
+
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                let mut left = dest;
+                while left.len() >= 8 {
+                    let (l, r) = { left }.split_at_mut(8);
+                    left = r;
+                    let chunk: [u8; 8] = self.next_u64().to_le_bytes();
+                    l.copy_from_slice(&chunk);
+                }
+                let n = left.len();
+                if n > 4 {
+                    let chunk: [u8; 8] = self.next_u64().to_le_bytes();
+                    left.copy_from_slice(&chunk[..n]);
+                } else if n > 0 {
+                    let chunk: [u8; 4] = self.next_u32().to_le_bytes();
+                    left.copy_from_slice(&chunk[..n]);
+                }
+            }
+
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+                Ok(self.fill_bytes(dest))
+            }
+        }
+
         #[test]
         fn test_store_receive_not_seen() {
-            let mut store = MessageStore::new(0x1111_2222_3333_4444);
+            let rng = SmallRng::seed_from_u64(0x1111_2222_3333_4444);
+            let mut store = MessageStore::new(rng);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -267,7 +399,8 @@ mod tests {
 
         #[test]
         fn test_store_receive_seen() {
-            let mut store = MessageStore::new(0x1111_2222_3333_4444);
+            let rng = SmallRng::seed_from_u64(0x1111_2222_3333_4444);
+            let mut store = MessageStore::new(rng);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -278,11 +411,36 @@ mod tests {
             let m_clone = m.clone();
             let m_clone_2 = m.clone();
 
-            let _ = store.recv(m).unwrap();
+            store.recv(m).unwrap();
             let outcome = store.recv(m_clone).unwrap();
             assert_eq!(StoreRecvOutcome::Seen, outcome);
             let outcome = store.recv(m_clone_2).unwrap();
             assert_eq!(StoreRecvOutcome::Seen, outcome);
+        }
+
+        #[test]
+        fn test_schedue_tick() {
+            let rng = TestingRng(0, Vec::from_slice(&[2, 1]).unwrap());
+            let mut store = MessageStore::new(rng);
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+
+            let outcome = store.recv(m.clone()).unwrap();
+            assert_eq!(StoreRecvOutcome::NotSeenScheduled(2), outcome);
+            let tick_1_result = store.tick_try_send().unwrap();
+            assert!(tick_1_result.is_empty());
+            // ignore this one, should return at tick 3
+            store.tick_try_send().unwrap();
+
+            // now at tick 3 the vector of messages to resend should contain exactle 1 message - m
+            let tick_3_result = store.tick_try_send().unwrap();
+            assert_eq!(tick_3_result.len(), 1);
+            assert_eq!(tick_3_result[0], m);
         }
     }
 }
