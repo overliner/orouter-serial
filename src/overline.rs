@@ -218,7 +218,6 @@ impl<R: RngCore> MessageStore<R> {
         let mut result = Vec::<Message, U3>::new();
         let mut idx: usize = 0;
         let mut remove_indices = Vec::<usize, U3>::new();
-        println!("tick_try_send() self.tick_count = {}", self.tick_count);
 
         // FIXME only gather indices and swap_remove them one by on in other cycle
         for item in &self.short_term_queue {
@@ -241,10 +240,6 @@ impl<R: RngCore> MessageStore<R> {
             idx += 1;
         }
 
-        println!(
-            "tick_try_send() remove_indices = {:?}, stq = {:?}",
-            remove_indices, self.short_term_queue
-        );
         for idx in &remove_indices {
             self.short_term_queue.push(None).unwrap();
             self.short_term_queue.swap_remove(*idx).unwrap();
