@@ -135,6 +135,11 @@ impl PartialEq for ShortTermQueueItem {
     }
 }
 
+#[cfg(feature = "debug")]
+type ShortTermQueueLength = U16;
+#[cfg(not(feature = "debug"))]
+type ShortTermQueueLength = U64;
+
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
 #[derive(Debug)]
@@ -142,10 +147,8 @@ pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u16,
     tick_count: u16,
-    #[cfg(feature = "debug")]
-    short_term_queue: Vec<Option<ShortTermQueueItem>, U16>,
-    #[cfg(not(feature = "debug"))]
-    short_term_queue: Vec<Option<ShortTermQueueItem>, U64>,
+    // short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, ShortTermQueueLength>,
+    short_term_queue: Vec<Option<ShortTermQueueItem>, ShortTermQueueLength>,
     #[cfg(feature = "debug")]
     long_term_queue: FnvIndexSet<MessageHash, U64>,
     #[cfg(not(feature = "debug"))]
@@ -245,7 +248,7 @@ impl<R: RngCore> MessageStore<R> {
             self.short_term_queue.swap_remove(*idx).unwrap();
         }
 
-        if self.tick_count == 999 {
+        if self.tick_count == ShortTermQueueLength::U16 - 1 {
             self.tick_count = 0;
         } else {
             self.tick_count += 1;
@@ -254,9 +257,15 @@ impl<R: RngCore> MessageStore<R> {
         Ok(result)
     }
 
-    // will produce 0-999, this will need tuning when timer set up
+    // will produce 0-ShortTermQueueLength, this will need tuning when timer set up
     fn get_interval(&mut self) -> u16 {
-        (self.rng.next_u32() % 1000) as u16
+        let mut interval =
+            self.tick_count + (self.rng.next_u32() % ShortTermQueueLength::U32) as u16;
+        // handle rollover
+        if interval > ShortTermQueueLength::U16 {
+            interval = interval - ShortTermQueueLength::U16 - 1;
+        }
+        interval
     }
 }
 
@@ -336,6 +345,7 @@ mod tests {
 
         use rand::Error;
 
+        #[derive(Debug)]
         struct TestingRng(u8, Vec<u64, U64>);
 
         impl RngCore for TestingRng {
@@ -389,7 +399,9 @@ mod tests {
             );
 
             let outcome = store.recv(m).unwrap();
-            assert_eq!(StoreRecvOutcome::NotSeenScheduled(555), outcome); // 555 is first value generated from the provided seed
+            // 555 is first value generated from the provided seed
+            let expected_when = 555 % (ShortTermQueueLength::U16 - 1);
+            assert_eq!(StoreRecvOutcome::NotSeenScheduled(expected_when), outcome);
         }
 
         #[test]
@@ -414,7 +426,7 @@ mod tests {
         }
 
         #[test]
-        fn test_schedue_tick() {
+        fn test_schedue_tick_simple() {
             let rng = TestingRng(0, Vec::from_slice(&[2, 1]).unwrap());
             let mut store = MessageStore::new(rng);
             let m = Message(
@@ -436,6 +448,41 @@ mod tests {
             let tick_3_result = store.tick_try_send().unwrap();
             assert_eq!(tick_3_result.len(), 1);
             assert_eq!(tick_3_result[0], m);
+        }
+
+        #[test]
+        fn test_schedule_tick_rollover() {
+            // max tick count is say 10 [0-9]
+            // tick count is 8 (we are at tick 7)
+            // when generated for message is 4 ticks, so it should be scheduled for 1 in the next
+            // epoch
+            let rng = TestingRng(0, Vec::from_slice(&[6, 1, 1, 1]).unwrap());
+            let mut store = MessageStore::new(rng);
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+
+            // lets move 3 ticks before rollover
+            for _ in 0..(ShortTermQueueLength::USIZE - 3) {
+                store.tick_try_send().unwrap();
+                // println!("storge tick = {:?}", store);
+            }
+
+            let outcome = store.recv(m.clone()).unwrap();
+            assert_eq!(StoreRecvOutcome::NotSeenScheduled(2), outcome);
+
+            // lets move 5 ticks further
+            for _ in 0..5 {
+                let tick_result = store.tick_try_send().unwrap();
+                assert_eq!(tick_result.len(), 0);
+            }
+            let tick_result = store.tick_try_send().unwrap();
+            assert_eq!(tick_result.len(), 1);
+            assert_eq!(tick_result[0], m);
         }
     }
 }
