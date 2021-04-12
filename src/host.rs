@@ -16,7 +16,7 @@ use typenum::{op, Unsigned};
 
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
-pub type MaxMessageQueueLength = U3;
+pub type MaxMessageQueueLength = U4;
 
 /// Computed as
 ///
@@ -579,6 +579,7 @@ mod tests {
         let mut encoded_buffer = [128; 32];
         let mut start = 0;
         for msg in vec![
+            vec![0xc0, 0xff, 0xee],
             vec![0xc0, 0xff, 0xee],
             vec![0xc0, 0xff, 0xee],
             vec![0xc0, 0xff, 0xee],
