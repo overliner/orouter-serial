@@ -95,6 +95,10 @@ impl Message {
             _ => Err(Error::UnknownType),
         }
     }
+
+    pub fn as_vec(self) -> Vec<u8, MaxLoraPayloadLength> {
+        self.0
+    }
 }
 
 /// Describes outcome of attempt to [`MessageStore::recv`]
