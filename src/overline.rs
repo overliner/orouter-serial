@@ -18,6 +18,8 @@ pub type MessageHash = Vec<u8, MessageHashLength>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidMessage,
+    ShortTermQueueFull,
+    LongTermQueueFull,
     CannotReceive,
     UnknownType,
 }
@@ -188,10 +190,6 @@ impl<R: RngCore> MessageStore<R> {
         }
 
         if let Some(remove_idx) = remove_idx {
-            // TODO solve short term queue full edge case
-            self.short_term_queue
-                .push(None)
-                .map_err(|_| Error::CannotReceive)?;
             self.short_term_queue.swap_remove(remove_idx);
             // TODO fix rotation when long_term_queue is full - use HB and try recent() before full
             // iteration?
@@ -212,6 +210,11 @@ impl<R: RngCore> MessageStore<R> {
             message_data_part,
             when,
         };
+
+        if self.short_term_queue.len() == ShortTermQueueLength::USIZE {
+            return Err(Error::ShortTermQueueFull);
+        }
+
         self.short_term_queue
             .push(Some(item))
             .map_err(|_| Error::CannotReceive)?;
@@ -248,7 +251,6 @@ impl<R: RngCore> MessageStore<R> {
         }
 
         for idx in &remove_indices {
-            self.short_term_queue.push(None).unwrap();
             self.short_term_queue.swap_remove(*idx).unwrap();
         }
 
@@ -347,7 +349,7 @@ mod tests {
     mod store {
         use super::*;
 
-        use rand::Error;
+        use rand::Error as RandError;
 
         #[derive(Debug)]
         struct TestingRng(u8, Vec<u64, U64>);
@@ -385,7 +387,7 @@ mod tests {
                 }
             }
 
-            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), RandError> {
                 Ok(self.fill_bytes(dest))
             }
         }
@@ -473,7 +475,6 @@ mod tests {
             // lets move 3 ticks before rollover
             for _ in 0..(ShortTermQueueLength::USIZE - 3) {
                 store.tick_try_send().unwrap();
-                // println!("storge tick = {:?}", store);
             }
 
             let outcome = store.recv(m.clone()).unwrap();
@@ -488,5 +489,67 @@ mod tests {
             assert_eq!(tick_result.len(), 1);
             assert_eq!(tick_result[0], m);
         }
+
+        #[test]
+        fn test_schedule_max_plus_1_message() {
+            let rng = TestingRng(
+                0,
+                Vec::from_slice(&[
+                    0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                ])
+                .unwrap(),
+            );
+            let mut store = MessageStore::new(rng);
+
+            // let's receive 64 messages - full length of the queue
+            for n in 0..(ShortTermQueueLength::USIZE) {
+                let first_byte = (n + 100) as u8;
+                let m = Message(
+                    Vec::from_slice(&[
+                        0xaa, first_byte, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                        0xaa, 0xaa, 0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                    ])
+                    .unwrap(),
+                );
+                let _ = store.recv(m).unwrap();
+            }
+
+            // try to receive one more - and check proper error instead of outcome
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0x00, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+            let outcome = store.recv(m);
+
+            assert_eq!(Err(Error::ShortTermQueueFull), outcome);
+
+            // now tick to remove one item from the queue
+            let tick_result = store.tick_try_send().unwrap();
+            assert_eq!(tick_result.len(), 1);
+            let msg = tick_result[0].clone();
+            let (hash, _) = msg.into_hash_data().unwrap();
+            assert!(hash.starts_with(&[0xaa, 100])); // verify it's the first tick scheduled message
+
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0x00, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+
+            // store now should be able to receive another message, with when = 3 (tick_count = 1 +
+            // rng_vec[1])
+            let outcome = store.recv(m).unwrap();
+            assert_eq!(StoreRecvOutcome::NotSeenScheduled(3), outcome);
+        }
+
+        #[test]
+        fn test_schedule_max_plus_1_long_term_queue() {}
     }
 }
