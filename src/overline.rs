@@ -5,7 +5,7 @@
 //! implementation of overline message retransmission rules
 use core::cmp::{Ord, Ordering};
 
-use heapless::{consts::*, FnvIndexSet, Vec};
+use heapless::{consts::*, HistoryBuffer, Vec};
 use rand::prelude::*;
 use typenum::{op, Unsigned};
 
@@ -153,13 +153,12 @@ type LongTermQueueLength = U512;
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
-#[derive(Debug)]
 pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u16,
     tick_count: u16,
     short_term_queue: Vec<Option<ShortTermQueueItem>, ShortTermQueueLength>, // TODO remove option?
-    long_term_queue: FnvIndexSet<MessageHash, LongTermQueueLength>,
+    long_term_queue: HistoryBuffer<MessageHash, LongTermQueueLength>,
     rng: R,
 }
 
@@ -169,7 +168,7 @@ impl<R: RngCore> MessageStore<R> {
             tick_duration: Default::default(),
             tick_count: Default::default(),
             short_term_queue: Default::default(),
-            long_term_queue: Default::default(),
+            long_term_queue: HistoryBuffer::new(),
             rng,
         }
     }
@@ -192,16 +191,14 @@ impl<R: RngCore> MessageStore<R> {
 
         if let Some(remove_idx) = remove_idx {
             self.short_term_queue.swap_remove(remove_idx);
-            // TODO fix rotation when long_term_queue is full - use HB and try recent() before full
-            // iteration?
-            self.long_term_queue
-                .insert(message_hash)
-                .map_err(|_| Error::CannotReceive)?;
+            self.long_term_queue.write(message_hash);
             return Ok(StoreRecvOutcome::Seen);
         }
 
-        if self.long_term_queue.contains(&message_hash) {
-            return Ok(StoreRecvOutcome::Seen);
+        for item in self.long_term_queue.as_slice() {
+            if item == &message_hash {
+                return Ok(StoreRecvOutcome::Seen);
+            }
         }
 
         // if not, store hash and body and enqueue to short term queue with a random timeout
@@ -550,6 +547,49 @@ mod tests {
         }
 
         #[test]
-        fn test_schedule_max_plus_1_long_term_queue() {}
+        fn test_schedule_max_plus_1_long_term_queue() {
+            let rng = TestingRng(
+                0,
+                Vec::from_slice(&[
+                    0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                ])
+                .unwrap(),
+            );
+            let mut store = MessageStore::new(rng);
+
+            // let's receive 64 messages - full length of the long term queue
+            for n in 0..(LongTermQueueLength::USIZE) {
+                let first_byte = (n + 100) as u8;
+                let m = Message(
+                    Vec::from_slice(&[
+                        0xaa, first_byte, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                        0xaa, 0xaa, 0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                    ])
+                    .unwrap(),
+                );
+                let _ = store.recv(m.clone()).unwrap();
+                let outcome = store.recv(m).unwrap();
+                assert_eq!(outcome, StoreRecvOutcome::Seen);
+            }
+
+            // try to add another message, this should make the long term queue to pop the oldest
+            // hash
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xff, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+            // for the first time it was not seen
+            let outcome = store.recv(m.clone()).unwrap();
+            assert_eq!(outcome, StoreRecvOutcome::NotSeenScheduled(0));
+            // for the second time it was moved to long term queue, which didn't fail and returns
+            // ::Seen
+            let outcome = store.recv(m).unwrap();
+            assert_eq!(outcome, StoreRecvOutcome::Seen);
+        }
     }
 }
