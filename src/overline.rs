@@ -141,10 +141,15 @@ impl PartialEq for ShortTermQueueItem {
     }
 }
 
-#[cfg(feature = "debug")]
+#[cfg(any(feature = "debug", test))]
 type ShortTermQueueLength = U16;
-#[cfg(not(feature = "debug"))]
+#[cfg(not(any(feature = "debug", test)))]
 type ShortTermQueueLength = U64;
+
+#[cfg(any(feature = "debug", test))]
+type LongTermQueueLength = U64;
+#[cfg(not(any(feature = "debug", test)))]
+type LongTermQueueLength = U512;
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
@@ -153,12 +158,8 @@ pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u16,
     tick_count: u16,
-    // short_term_queue: FnvIndexMap<MessageHash, MessageDataPart, ShortTermQueueLength>,
-    short_term_queue: Vec<Option<ShortTermQueueItem>, ShortTermQueueLength>,
-    #[cfg(feature = "debug")]
-    long_term_queue: FnvIndexSet<MessageHash, U64>,
-    #[cfg(not(feature = "debug"))]
-    long_term_queue: FnvIndexSet<MessageHash, U512>,
+    short_term_queue: Vec<Option<ShortTermQueueItem>, ShortTermQueueLength>, // TODO remove option?
+    long_term_queue: FnvIndexSet<MessageHash, LongTermQueueLength>,
     rng: R,
 }
 
@@ -394,7 +395,7 @@ mod tests {
 
         #[test]
         fn test_store_receive_not_seen() {
-            let rng = SmallRng::seed_from_u64(0x1111_2222_3333_4444);
+            let rng = TestingRng(0, Vec::from_slice(&[2, 1]).unwrap());
             let mut store = MessageStore::new(rng);
             let m = Message(
                 Vec::from_slice(&[
@@ -405,8 +406,7 @@ mod tests {
             );
 
             let outcome = store.recv(m).unwrap();
-            // 555 is first value generated from the provided seed
-            let expected_when = 555 % (ShortTermQueueLength::U16 - 1);
+            let expected_when = 2;
             assert_eq!(StoreRecvOutcome::NotSeenScheduled(expected_when), outcome);
         }
 
@@ -503,7 +503,7 @@ mod tests {
             );
             let mut store = MessageStore::new(rng);
 
-            // let's receive 64 messages - full length of the queue
+            // let's receive 16 messages - full length of the queue
             for n in 0..(ShortTermQueueLength::USIZE) {
                 let first_byte = (n + 100) as u8;
                 let m = Message(
