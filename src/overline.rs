@@ -157,7 +157,7 @@ pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u16,
     tick_count: u16,
-    short_term_queue: Vec<Option<ShortTermQueueItem>, ShortTermQueueLength>, // TODO remove option?
+    short_term_queue: Vec<ShortTermQueueItem, ShortTermQueueLength>, // TODO remove option?
     long_term_queue: HistoryBuffer<MessageHash, LongTermQueueLength>,
     rng: R,
 }
@@ -180,11 +180,9 @@ impl<R: RngCore> MessageStore<R> {
         let mut idx: usize = 0;
         let mut remove_idx = None;
         for item in &self.short_term_queue {
-            if let Some(item) = item {
-                if item.message_hash == message_hash {
-                    remove_idx = Some(idx);
-                    break;
-                }
+            if item.message_hash == message_hash {
+                remove_idx = Some(idx);
+                break;
             }
             idx += 1;
         }
@@ -214,7 +212,7 @@ impl<R: RngCore> MessageStore<R> {
         }
 
         self.short_term_queue
-            .push(Some(item))
+            .push(item)
             .map_err(|_| Error::CannotReceive)?;
         Ok(StoreRecvOutcome::NotSeenScheduled(when))
     }
@@ -229,21 +227,19 @@ impl<R: RngCore> MessageStore<R> {
 
         // FIXME only gather indices and swap_remove them one by on in other cycle
         for item in &self.short_term_queue {
-            if let Some(item) = item {
-                // TODO if the short_term_queue is sorted, then we could break early here
-                if item.when == self.tick_count {
-                    // TODO remove from queue
-                    result
-                        .push(
-                            Message::try_from_hash_data(
-                                item.message_hash.clone(),
-                                item.message_data_part.clone(),
-                            )
-                            .unwrap(),
+            // TODO if the short_term_queue is sorted, then we could break early here
+            if item.when == self.tick_count {
+                // TODO remove from queue
+                result
+                    .push(
+                        Message::try_from_hash_data(
+                            item.message_hash.clone(),
+                            item.message_data_part.clone(),
                         )
-                        .unwrap();
-                    remove_indices.push(idx).unwrap();
-                }
+                        .unwrap(),
+                    )
+                    .unwrap();
+                remove_indices.push(idx).unwrap();
             }
             idx += 1;
         }
