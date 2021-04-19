@@ -249,7 +249,12 @@ impl<R: RngCore> MessageStore<R> {
         }
 
         for idx in &remove_indices {
-            self.short_term_queue.swap_remove(*idx).unwrap();
+            self.short_term_queue.swap_remove(*idx);
+        }
+
+        for msg in &result {
+            let hash = msg.hash().unwrap(); // FIXME map to appropriate error
+            self.long_term_queue.write(hash);
         }
 
         if self.tick_count == ShortTermQueueLength::U16 - 1 {
@@ -263,8 +268,8 @@ impl<R: RngCore> MessageStore<R> {
 
     // will produce 0-ShortTermQueueLength, this will need tuning when timer set up
     fn get_interval(&mut self) -> u16 {
-        let mut interval =
-            self.tick_count + (self.rng.next_u32() % ShortTermQueueLength::U32) as u16;
+        let rng = self.rng.next_u32();
+        let mut interval = self.tick_count + (rng % ShortTermQueueLength::U32) as u16;
         // handle rollover
         if interval > ShortTermQueueLength::U16 {
             interval = interval - ShortTermQueueLength::U16 - 1;
@@ -426,6 +431,36 @@ mod tests {
             assert_eq!(StoreRecvOutcome::Seen, outcome);
             let outcome = store.recv(m_clone_2).unwrap();
             assert_eq!(StoreRecvOutcome::Seen, outcome);
+        }
+
+        #[test]
+        fn test_store_receive_seen_not_clone() {
+            let rng = TestingRng(0, Vec::from_slice(&[1, 1]).unwrap());
+            let mut store = MessageStore::new(rng);
+            let m = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+            let m2 = Message(
+                Vec::from_slice(&[
+                    0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                    0xaa, 0xbb, 0xcc, 0x15, 0xff,
+                ])
+                .unwrap(),
+            );
+
+            let outcome = store.recv(m).unwrap();
+            store.tick_try_send().unwrap(); // tick = 0
+            store.tick_try_send().unwrap(); // tick = 1
+            let outcome = store.recv(m2.clone()).unwrap();
+            assert_eq!(StoreRecvOutcome::Seen, outcome);
+            store.tick_try_send().unwrap(); // tick = 2
+            let outcome = store.recv(m2).unwrap();
+            assert_eq!(StoreRecvOutcome::Seen, outcome);
+            assert!(false);
         }
 
         #[test]
