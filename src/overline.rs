@@ -448,7 +448,7 @@ mod tests {
                 .unwrap(),
             );
 
-            let outcome = store.recv(m).unwrap();
+            let _ = store.recv(m).unwrap();
             store.tick_try_send().unwrap(); // tick = 0
             store.tick_try_send().unwrap(); // tick = 1
             let outcome = store.recv(m2.clone()).unwrap();
@@ -456,7 +456,6 @@ mod tests {
             store.tick_try_send().unwrap(); // tick = 2
             let outcome = store.recv(m2).unwrap();
             assert_eq!(StoreRecvOutcome::Seen, outcome);
-            assert!(false);
         }
 
         #[test]
