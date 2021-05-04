@@ -16,7 +16,6 @@
 
 use heapless::{FnvIndexMap, Vec};
 use rand::prelude::*;
-use typenum::{consts::*, op, Unsigned};
 
 /// P2pMessagePart represents raw chunk of data received using radio chip.
 /// It uses following structure:
@@ -28,32 +27,34 @@ use typenum::{consts::*, op, Unsigned};
 /// | total_count | 1               | total count of messages with this prefix               |
 /// | length      | 1               | length of data                                         |
 /// | data        | 1 - 248         | actual data                                            |
-pub type MaxLoraMessageSize = U255;
+pub const MaxLoraMessageSize: usize = 255;
 pub type P2pMessagePart = Vec<u8, MaxLoraMessageSize>;
 
-type MaxOverlineMessageLength = U512;
-type MaxP2pMessagePartCount = U3;
-type MaxUnfinishedP2pMessageCount = U4;
+const MAX_OVERLINE_MESSAGE_LENGTH: usize = 512;
+const MAX_P2P_MESSAGE_PART_COUNT: usize = 3;
+const MAX_UNFINISHED_P2P_MESSAGE_COUNT: usize = 4;
 
 /// Represents a raw p2p message constructed back from chunks
 /// This has yet to be parsed into a typed [overline
 /// message](../overline/enum.OverlineMessageType.html)
-pub type P2pMessage = Vec<u8, MaxOverlineMessageLength>;
+pub type P2pMessage = Vec<u8, MAX_OVERLINE_MESSAGE_LENGTH>;
 
-type PrefixLength = U4;
-type PrefixIdx = U0;
-type Prefix = Vec<u8, PrefixLength>;
+const PREFIX_LENGTH: usize = 4;
+const PREFIX_IDX: usize = 0;
+type Prefix = Vec<u8, PREFIX_LENGTH>;
 
-type PartNumberLength = U1;
-type PartNumberIdx = op!(PrefixLength + PartNumberLength - U1);
+const PART_NUMBER_LENGTH: usize = 1;
+const PART_NUMBER_IDX: usize = PREFIX_LENGTH + PART_NUMBER_LENGTH - 1;
 
-type TotalCountLength = U1;
-type TotalCountIdx = op!(PrefixLength + PartNumberLength + TotalCountLength - U1);
+const TOTAL_COUNT_LENGTH: usize = 1;
+const TOTAL_COUNT_IDX: usize = PREFIX_LENGTH + PART_NUMBER_LENGTH + TOTAL_COUNT_LENGTH - 1;
 
-type LengthLength = U1;
-type LengthIdx = op!(PrefixLength + PartNumberLength + TotalCountLength + LengthLength - U1);
+const LENGTH_LENGTH: usize = 1;
+const LENGTH_IDX: usize =
+    PREFIX_LENGTH + PART_NUMBER_LENGTH + TOTAL_COUNT_LENGTH + LENGTH_LENGTH - 1;
 
-type HeaderLength = op!(PrefixLength + PartNumberLength + TotalCountLength + LengthLength);
+const HEADER_LENGTH: usize =
+    PREFIX_LENGTH + PART_NUMBER_LENGTH + TOTAL_COUNT_LENGTH + LENGTH_LENGTH;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -78,8 +79,8 @@ pub struct MessagePool {
     /// Contains parts of the raw P2pMessage. Parts are stored without the prefix
     incomplete_message_map: FnvIndexMap<
         Prefix,
-        Vec<P2pMessagePart, MaxP2pMessagePartCount>,
-        MaxUnfinishedP2pMessageCount,
+        Vec<P2pMessagePart, MAX_P2P_MESSAGE_PART_COUNT>,
+        MAX_UNFINISHED_P2P_MESSAGE_COUNT,
     >,
 }
 
@@ -90,26 +91,24 @@ impl MessagePool {
             return Err(Error::MalformedMessage);
         }
 
-        let part_num = &msg[PartNumberIdx::USIZE];
-        let total_count = &msg[TotalCountIdx::USIZE];
+        let part_num = &msg[PART_NUMBER_IDX];
+        let total_count = &msg[TOTAL_COUNT_IDX];
 
-        if *part_num == PartNumberLength::U8 && *total_count == TotalCountLength::U8 {
+        if *part_num == PART_NUMBER_LENGTH as u8 && *total_count == TOTAL_COUNT_LENGTH as u8 {
             // TODO check CRC
-            return Ok(Some(
-                Vec::<_, _>::from_slice(&msg[HeaderLength::USIZE..]).unwrap(),
-            ));
+            return Ok(Some(Vec::from_slice(&msg[HEADER_LENGTH..]).unwrap()));
         }
 
-        let prefix = Vec::<_, _>::from_slice(&msg[PrefixIdx::USIZE..PrefixLength::USIZE]).unwrap();
+        let prefix = Vec::from_slice(&msg[PREFIX_IDX..PREFIX_LENGTH]).unwrap();
 
         // get the parts vec
         let parts_vec = match self.incomplete_message_map.get_mut(&prefix) {
             Some(parts) => parts,
             None => {
-                if self.incomplete_message_map.len() == MaxUnfinishedP2pMessageCount::U8 as usize {
+                if self.incomplete_message_map.len() == MAX_UNFINISHED_P2P_MESSAGE_COUNT as usize {
                     return Err(Error::PoolFull);
                 }
-                let v = Vec::<P2pMessagePart, MaxP2pMessagePartCount>::new();
+                let v = Vec::<P2pMessagePart, MAX_P2P_MESSAGE_PART_COUNT>::new();
                 // println!("inserting prefix = {:02x?}", prefix);
                 self.incomplete_message_map
                     .insert(prefix.clone(), v)
@@ -122,14 +121,12 @@ impl MessagePool {
         match parts_vec.get(parts_index as usize) {
             Some(part) if !part.is_empty() => {} // we already have this message part, not a problem
             Some(_) => {
-                parts_vec[parts_index as usize] =
-                    Vec::<_, _>::from_slice(&msg[HeaderLength::USIZE..]).unwrap();
+                parts_vec[parts_index as usize] = Vec::from_slice(&msg[HEADER_LENGTH..]).unwrap();
             }
             None => {
                 // lets insert the message
                 parts_vec.resize_default(parts_index as usize + 1).unwrap();
-                parts_vec[parts_index as usize] =
-                    Vec::<_, _>::from_slice(&msg[HeaderLength::USIZE..]).unwrap();
+                parts_vec[parts_index as usize] = Vec::from_slice(&msg[HEADER_LENGTH..]).unwrap();
             }
         }
 
@@ -144,7 +141,7 @@ impl MessagePool {
 
         if has_all {
             // FIXME check the CRC
-            let mut r = Vec::<u8, MaxOverlineMessageLength>::new();
+            let mut r = Vec::<u8, MAX_OVERLINE_MESSAGE_LENGTH>::new();
             for part in parts_vec.iter() {
                 r.extend_from_slice(&part).unwrap();
             }
@@ -180,9 +177,9 @@ impl MessagePool {
         if msg.len() < 8 {
             return false;
         }
-        let part_num = &msg[PartNumberIdx::USIZE];
-        let total_count = &msg[TotalCountIdx::USIZE];
-        let len = &msg[LengthIdx::USIZE];
+        let part_num = &msg[PART_NUMBER_IDX];
+        let total_count = &msg[TOTAL_COUNT_IDX];
+        let len = &msg[LENGTH_IDX];
         // println!(
         //     "part_num_i = {}, total_count_i = {}, len_i = {}, MESSAGE_DATA_START_IDX = {}",
         //     MESSAGE_PART_NUMBER_IDX,
@@ -207,7 +204,7 @@ impl MessagePool {
         }
 
         // claimed len is different from actual remaining data bytes
-        if *len as usize != msg.len() - HeaderLength::USIZE {
+        if *len as usize != msg.len() - HEADER_LENGTH {
             return false;
         }
 
@@ -232,8 +229,8 @@ impl MessageSlicer {
     pub fn slice(
         &mut self,
         msg: &[u8],
-    ) -> Result<Vec<P2pMessagePart, MaxP2pMessagePartCount>, Error> {
-        if msg.len() > MaxOverlineMessageLength::USIZE {
+    ) -> Result<Vec<P2pMessagePart, MAX_P2P_MESSAGE_PART_COUNT>, Error> {
+        if msg.len() > MAX_OVERLINE_MESSAGE_LENGTH {
             return Err(Error::TooLong);
         }
 
@@ -242,8 +239,8 @@ impl MessageSlicer {
         for _ in 0..4 {
             prefix.push(self.rng.gen()).unwrap();
         }
-        let mut res = Vec::<P2pMessagePart, MaxP2pMessagePartCount>::new();
-        let chunks = msg.chunks(MaxLoraMessageSize::USIZE - HeaderLength::USIZE);
+        let mut res = Vec::<P2pMessagePart, MAX_P2P_MESSAGE_PART_COUNT>::new();
+        let chunks = msg.chunks(MaxLoraMessageSize - HEADER_LENGTH);
         let total_count = chunks.len();
         for (i, part_bytes) in chunks.enumerate() {
             let mut p = P2pMessagePart::new();
@@ -268,7 +265,7 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x01, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x01, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let res = p.try_insert(msg1).unwrap().unwrap();
         assert_eq!(&res, &[0xc0, 0xff, 0xee]);
@@ -279,7 +276,7 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let res = p.try_insert(msg1).unwrap();
         assert_eq!(res, None);
@@ -290,11 +287,11 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
 
         p.try_insert(msg1).unwrap();
         let res = p.try_insert(msg2).unwrap().unwrap();
@@ -306,11 +303,11 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
 
         assert_eq!(None, p.try_insert(msg2).unwrap());
         let res = p.try_insert(msg1).unwrap().unwrap();
@@ -322,15 +319,15 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
 
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
 
         assert_eq!(None, p.try_insert(msg1).unwrap());
         assert_eq!(None, p.try_insert(msg2).unwrap());
@@ -346,15 +343,15 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
 
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
 
         assert_eq!(None, p.try_insert(msg2).unwrap());
         assert_eq!(None, p.try_insert(msg1).unwrap());
@@ -370,15 +367,15 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0xc1, 0xff, 0xee]).unwrap();
 
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
 
         assert_eq!(None, p.try_insert(msg3).unwrap());
         assert_eq!(None, p.try_insert(msg1).unwrap());
@@ -394,11 +391,11 @@ mod tests {
         let mut p = MessagePool::default();
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x03, 0x03, 0xc0, 0xff, 0xee]).unwrap();
 
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x03, 0xc2, 0xff, 0xee]).unwrap();
 
         assert_eq!(None, p.try_insert(msg3.clone()).unwrap());
         assert_eq!(None, p.try_insert(msg1).unwrap());
@@ -412,23 +409,23 @@ mod tests {
         // messages with 5 different prefixes
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg1).unwrap());
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg2).unwrap());
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x03, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x03, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg3).unwrap());
         let msg4 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x04, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x04, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg4).unwrap());
         let msg5 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x05, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x05, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(Err(Error::PoolFull), p.try_insert(msg5));
     }
 
@@ -439,28 +436,28 @@ mod tests {
         // messages with 5 different prefixes
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg1).unwrap());
         assert_eq!(p.size(), 1);
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg2).unwrap());
         assert_eq!(p.size(), 2);
         let msg3 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x03, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x03, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg3).unwrap());
         assert_eq!(p.size(), 3);
         let msg4 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x04, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x04, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg4).unwrap());
         assert_eq!(p.size(), 4);
 
         let msg1_2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
         assert_ne!(None, p.try_insert(msg1_2).unwrap());
         assert_eq!(p.size(), 3); // none added, msg1 removed with this one
     }
@@ -472,12 +469,12 @@ mod tests {
         // messages with 5 different prefixes
         let msg1 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x01, 0x01, 0x02, 0x02, 0x01, 0x02, 0x03, 0xc0, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg1).unwrap());
         assert_eq!(p.size(), 1);
         let msg2 =
             //                         prefix               | num | tot | len | data
-            Vec::<_, _>::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
+            Vec::from_slice(&[0x02, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0xc1, 0xff, 0xee]).unwrap();
         assert_eq!(None, p.try_insert(msg2.clone()).unwrap());
         assert_eq!(p.size(), 2);
 
@@ -548,8 +545,8 @@ mod tests {
     #[test]
     fn test_slicer_two_parts() {
         let mut s = MessageSlicer::new(0xdead_beef_cafe_d00d);
-        let mut test_data_message = Vec::<u8, MaxOverlineMessageLength>::new();
-        for b in core::iter::repeat(0xff).take(MaxLoraMessageSize::USIZE - HeaderLength::USIZE) {
+        let mut test_data_message = Vec::<u8, MAX_OVERLINE_MESSAGE_LENGTH>::new();
+        for b in core::iter::repeat(0xff).take(MaxLoraMessageSize - HEADER_LENGTH) {
             test_data_message.push(b).unwrap();
         }
         test_data_message
@@ -568,8 +565,8 @@ mod tests {
     #[test]
     fn test_slicer_too_long_data() {
         let mut s = MessageSlicer::new(0xdead_beef_cafe_d00d);
-        let mut test_data_message = Vec::<u8, U513>::new();
-        for b in core::iter::repeat(0xff).take(MaxOverlineMessageLength::USIZE + 1) {
+        let mut test_data_message = Vec::<u8, 513>::new();
+        for b in core::iter::repeat(0xff).take(MAX_OVERLINE_MESSAGE_LENGTH + 1) {
             test_data_message.push(b).unwrap();
         }
         assert_eq!(Err(Error::TooLong), s.slice(&test_data_message));

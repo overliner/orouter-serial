@@ -11,12 +11,11 @@
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::str::FromStr;
-use heapless::{consts::*, Vec};
-use typenum::{op, Unsigned};
+use heapless::Vec;
 
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
-pub type MaxMessageQueueLength = U4;
+pub const MAX_MESSAGE_QUEUE_LENGTH: usize = 4;
 
 /// Computed as
 ///
@@ -30,16 +29,20 @@ pub type MaxMessageQueueLength = U4;
 /// 260
 /// ```
 ///
-pub type MaxMessageLength = U260;
-pub type MaxMessageLengthHexEncoded = op!(U2 * MaxMessageLength); // hex encoding - each byte = 2 chars
-pub type HostMessageVec = Vec<u8, MaxMessageLength>;
-type MaxHexEncodedFramesCountRemainder =
-    op!(min(U1, MaxMessageLengthHexEncoded % MaxSerialFrameLength));
-pub type MaxHexEncodedFramesCount =
-    op!(MaxMessageLengthHexEncoded / MaxSerialFrameLength + MaxHexEncodedFramesCountRemainder);
+pub const MAX_MESSAGE_LENGTH: usize = 260;
+pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
+pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
+/// cannot run calculation in const declaration
+/// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);
+/// which is min(1, 520 % 128) = min(1, 8) = 1
+const MAX_HEX_ENCODED_FRAMES_COUNT_REMAINDER: usize = 1;
 
-type MaxSerialFrameLength = U128; // BLE can only process this
-type SerialFrameVec = Vec<u8, MaxSerialFrameLength>;
+pub const MAX_HEX_ENCODED_FRAMES_COUNT: usize = MAX_MESSAGE_LENGTH_HEX_ENCODED
+    / MAX_SERIAL_FRAME_LENGTH
+    + MAX_HEX_ENCODED_FRAMES_COUNT_REMAINDER;
+
+const MAX_SERIAL_FRAME_LENGTH: usize = 128; // BLE can only process this
+type SerialFrameVec = Vec<u8, MAX_SERIAL_FRAME_LENGTH>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -106,11 +109,11 @@ impl fmt::Display for StatusCode {
 pub enum Message {
     /// Host sending data to node instructing it to broadcast it to the wireless network
     SendData {
-        data: Vec<u8, crate::overline::MaxLoraPayloadLength>,
+        data: Vec<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Node sending data to host
     ReceiveData {
-        data: Vec<u8, crate::overline::MaxLoraPayloadLength>,
+        data: Vec<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Host is recongifuring the node
     Configure { region: u8 },
@@ -180,12 +183,12 @@ impl FromStr for Message {
         let val = iter.next().unwrap();
         match cmd_type {
             "send" => {
-                let mut data = Vec::<u8, crate::overline::MaxLoraPayloadLength>::new();
+                let mut data = Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::new();
                 let clean_val = match val.starts_with("0x") || val.starts_with("0X") {
                     true => &val[2..],
                     false => &val[..],
                 };
-                if clean_val.len() / 2 > crate::overline::MaxLoraPayloadLength::USIZE {
+                if clean_val.len() / 2 > crate::overline::MAX_LORA_PAYLOAD_LENGTH {
                     return Err(ParseMessageError::PayloadTooLong);
                 }
                 data.resize_default(clean_val.len() / 2)
@@ -220,10 +223,10 @@ impl Message {
 
         match buf[0] {
             0xc0 => Ok(Message::SendData {
-                data: Vec::<u8, U255>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..decoded_len]).unwrap(),
             }),
             0xc1 => Ok(Message::ReceiveData {
-                data: Vec::<u8, U255>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..decoded_len]).unwrap(),
             }),
             0xc2 => Ok(Message::Configure { region: buf[1] }),
             0xc3 => Ok(Message::ReportRequest),
@@ -314,10 +317,10 @@ impl Message {
     /// Returned Vecs can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_cobs_encoded_serial_frames(
         &self,
-    ) -> Result<Vec<SerialFrameVec, MaxHexEncodedFramesCount>, Error> {
+    ) -> Result<Vec<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>, Error> {
         let mut result = self.encode().unwrap();
-        let mut frames = Vec::<SerialFrameVec, MaxHexEncodedFramesCount>::new();
-        for chunk in result.chunks_mut(MaxSerialFrameLength::USIZE) {
+        let mut frames = Vec::<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>::new();
+        for chunk in result.chunks_mut(MAX_SERIAL_FRAME_LENGTH) {
             frames
                 .push(SerialFrameVec::from_slice(&chunk).unwrap())
                 .unwrap()
@@ -331,15 +334,15 @@ impl Message {
     pub fn as_cobs_encoded_frames_for_ble(
         &self,
         ble_serial_delimiter: char,
-    ) -> Result<Vec<SerialFrameVec, MaxHexEncodedFramesCount>, Error> {
+    ) -> Result<Vec<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>, Error> {
         let result = self.encode().unwrap();
-        let mut hex_result = Vec::<u8, MaxMessageLengthHexEncoded>::new();
+        let mut hex_result = Vec::<u8, MAX_MESSAGE_LENGTH_HEX_ENCODED>::new();
         hex_result.resize_default(result.len() * 2).unwrap();
         base16::encode_config_slice(&result, base16::EncodeLower, &mut hex_result);
 
         // wrap each chunk in a delimiter char
-        let mut frames = Vec::<SerialFrameVec, MaxHexEncodedFramesCount>::new();
-        for chunk in hex_result.chunks_mut(MaxSerialFrameLength::USIZE - 2) {
+        let mut frames = Vec::<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>::new();
+        for chunk in hex_result.chunks_mut(MAX_SERIAL_FRAME_LENGTH - 2) {
             let mut frame = SerialFrameVec::new();
             frame.push(ble_serial_delimiter as u8).unwrap();
             frame.extend_from_slice(&chunk).unwrap();
@@ -351,25 +354,25 @@ impl Message {
 }
 
 pub struct MessageReader {
-    buf: Vec<u8, U792>,
+    buf: Vec<u8, 792>,
 }
 
 impl MessageReader {
     pub fn new() -> Self {
         Self {
-            buf: Vec::<u8, U792>::new(),
+            buf: Vec::<u8, 792>::new(),
         }
     }
 
     pub fn process_bytes(
         &mut self,
         bytes: &[u8],
-    ) -> Result<Vec<Message, MaxMessageQueueLength>, Error> {
+    ) -> Result<Vec<Message, MAX_MESSAGE_QUEUE_LENGTH>, Error> {
         self.buf
             .extend_from_slice(bytes)
             .map_err(|_| Error::BufferFull)?;
 
-        let mut output = Vec::<Message, MaxMessageQueueLength>::new();
+        let mut output = Vec::<Message, MAX_MESSAGE_QUEUE_LENGTH>::new();
         let mut cobs_index: usize = 0;
 
         if !&self.buf.contains(&COBS_SENTINEL) {
@@ -381,7 +384,7 @@ impl MessageReader {
                     Ok(command) => {
                         self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
-                        if (output.len() as u16) < MaxMessageQueueLength::U16 {
+                        if output.len() < MAX_MESSAGE_QUEUE_LENGTH {
                             output.push(command).unwrap();
                         } else {
                             return Err(Error::MessageQueueFull);
@@ -408,8 +411,8 @@ impl MessageReader {
     pub fn process_bytes_hex(
         &mut self,
         hex_bytes: &[u8],
-    ) -> Result<Vec<Message, MaxMessageQueueLength>, Error> {
-        let mut decoded = Vec::<u8, U64>::new();
+    ) -> Result<Vec<Message, MAX_MESSAGE_QUEUE_LENGTH>, Error> {
+        let mut decoded = Vec::<u8, 64>::new();
         decoded.resize_default(64).unwrap();
         match base16::decode_slice(&hex_bytes, &mut decoded) {
             Ok(decoded_len) => self.process_bytes(&decoded[0..decoded_len]),
@@ -462,14 +465,14 @@ mod tests {
         assert_eq!(
             3,
             Message::SendData {
-                data: Vec::<u8, U255>::from_slice(&[0xff, 0xee]).unwrap()
+                data: Vec::<u8, 255>::from_slice(&[0xff, 0xee]).unwrap()
             }
             .len()
         );
         assert_eq!(
             5,
             Message::ReceiveData {
-                data: Vec::<u8, U255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
+                data: Vec::<u8, 255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
             }
             .len()
         );
@@ -511,7 +514,7 @@ mod tests {
             0xf4, 0x3b, 0xf8,
         ];
         let msg = Message::SendData {
-            data: Vec::<u8, U255>::from_slice(&encoded[..]).unwrap(),
+            data: Vec::<u8, 255>::from_slice(&encoded[..]).unwrap(),
         };
 
         let frames = msg.as_cobs_encoded_serial_frames().unwrap();
@@ -520,7 +523,7 @@ mod tests {
 
         let result = &frames[0];
         let last_frame = &frames.last().unwrap();
-        assert_eq!(result.len(), MaxSerialFrameLength::USIZE);
+        assert_eq!(result.len(), MAX_SERIAL_FRAME_LENGTH);
         for b in &result[0..result.len() - 2] {
             assert_ne!(0x00, *b);
         }
@@ -562,13 +565,13 @@ mod tests {
         assert_eq!(
             messages[0],
             Message::SendData {
-                data: Vec::<u8, U255>::from_slice(&[0xff, 0xee]).unwrap()
+                data: Vec::<u8, 255>::from_slice(&[0xff, 0xee]).unwrap()
             }
         );
         assert_eq!(
             messages[1],
             Message::ReceiveData {
-                data: Vec::<u8, U255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
+                data: Vec::<u8, 255>::from_slice(&[0xde, 0xad, 0xbe, 0xef]).unwrap()
             }
         );
     }
@@ -616,11 +619,12 @@ mod tests {
 
     #[test]
     fn test_max_len_data_message_encoding() {
-        let mut arr = [0u8; crate::overline::MaxLoraPayloadLength::USIZE];
+        let mut arr = [0u8; crate::overline::MAX_LORA_PAYLOAD_LENGTH];
         thread_rng().try_fill(&mut arr[..]).unwrap();
 
         let msg = Message::SendData {
-            data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&arr).unwrap(),
+            data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr)
+                .unwrap(),
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames
@@ -658,7 +662,7 @@ mod tests {
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = &hex_frames[0];
-        let mut decoded = Vec::<u8, U4>::new();
+        let mut decoded = Vec::<u8, 4>::new();
         decoded.resize_default(expected.len()).unwrap();
         base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
@@ -681,18 +685,19 @@ mod tests {
 
     #[test]
     fn test_max_message_length_as_cobs_encoded_frames_for_ble() {
-        let mut arr = [0u8; crate::overline::MaxLoraPayloadLength::USIZE];
+        let mut arr = [0u8; crate::overline::MAX_LORA_PAYLOAD_LENGTH];
         thread_rng().try_fill(&mut arr[..]).unwrap();
 
         let msg = Message::SendData {
-            data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&arr).unwrap(),
+            data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr)
+                .unwrap(),
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
         let frames = msg
             .as_cobs_encoded_frames_for_ble(BLE_SERIAL_DELIMITER)
             .unwrap();
-        assert_eq!(frames.len(), MaxHexEncodedFramesCount::USIZE);
+        assert_eq!(frames.len(), MAX_HEX_ENCODED_FRAMES_COUNT);
     }
 
     #[test]
@@ -719,8 +724,10 @@ mod tests {
         assert_eq!(
             msg,
             Message::SendData {
-                data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&[0xaa, 0xbb])
-                    .unwrap()
+                data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[
+                    0xaa, 0xbb
+                ])
+                .unwrap()
             }
         );
 
@@ -728,8 +735,10 @@ mod tests {
         assert_eq!(
             msg,
             Message::SendData {
-                data: Vec::<u8, crate::overline::MaxLoraPayloadLength>::from_slice(&[0xcc, 0xdd])
-                    .unwrap()
+                data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[
+                    0xcc, 0xdd
+                ])
+                .unwrap()
             }
         );
     }

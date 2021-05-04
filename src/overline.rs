@@ -5,15 +5,14 @@
 //! implementation of overline message retransmission rules
 use core::cmp::{Ord, Ordering};
 
-use heapless::{consts::*, HistoryBuffer, Vec};
+use heapless::{HistoryBuffer, Vec};
 use rand::prelude::*;
-use typenum::{op, Unsigned};
 
-pub type MaxLoraPayloadLength = U255;
-pub type MessageHashLength = U16;
-pub type MessageMaxDataLength = op!(MaxLoraPayloadLength - MessageHashLength);
-pub type MessageDataPart = Vec<u8, MessageMaxDataLength>; // FIXME better naming
-pub type MessageHash = Vec<u8, MessageHashLength>;
+pub const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
+pub const MESSAGE_HASH_LENGTH: usize = 16;
+pub const MESSAGE_MAX_DATA_LENGTH: usize = MAX_LORA_PAYLOAD_LENGTH - MESSAGE_HASH_LENGTH;
+pub type MessageDataPart = Vec<u8, MESSAGE_MAX_DATA_LENGTH>; // FIXME better naming
+pub type MessageHash = Vec<u8, MESSAGE_HASH_LENGTH>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -37,20 +36,20 @@ pub enum MessageType {
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
 #[derive(Debug, Clone, PartialEq)]
-pub struct Message(Vec<u8, MaxLoraPayloadLength>);
+pub struct Message(Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
 impl Message {
-    pub fn new(data: Vec<u8, MaxLoraPayloadLength>) -> Self {
+    pub fn new(data: Vec<u8, MAX_LORA_PAYLOAD_LENGTH>) -> Self {
         Message(data)
     }
 
     pub fn try_from_hash_data(hash: MessageHash, data: MessageDataPart) -> Result<Self, Error> {
-        if hash.len() != MessageHashLength::USIZE {
+        if hash.len() != MESSAGE_HASH_LENGTH {
             return Err(Error::InvalidMessage);
         }
 
-        if hash.len() + data.len() > MaxLoraPayloadLength::USIZE {
+        if hash.len() + data.len() > MAX_LORA_PAYLOAD_LENGTH {
             return Err(Error::InvalidMessage);
         }
 
@@ -70,25 +69,25 @@ impl Message {
     }
 
     pub fn hash(&self) -> Result<MessageHash, Error> {
-        if self.0.len() < MessageHashLength::USIZE {
+        if self.0.len() < MESSAGE_HASH_LENGTH {
             return Err(Error::InvalidMessage);
         }
 
-        match MessageHash::from_slice(&self.0[0..MessageHashLength::USIZE]) {
+        match MessageHash::from_slice(&self.0[0..MESSAGE_HASH_LENGTH]) {
             Ok(h) => Ok(h),
             Err(()) => Err(Error::InvalidMessage),
         }
     }
 
     pub fn data_part(&self) -> Result<MessageDataPart, Error> {
-        match MessageDataPart::from_slice(&self.0[MessageHashLength::USIZE..]) {
+        match MessageDataPart::from_slice(&self.0[MESSAGE_HASH_LENGTH..]) {
             Ok(h) => Ok(h),
             Err(()) => Err(Error::InvalidMessage),
         }
     }
 
     pub fn typ(&self) -> Result<MessageType, Error> {
-        match self.0[MessageHashLength::USIZE] {
+        match self.0[MESSAGE_HASH_LENGTH] {
             0x11 => Ok(MessageType::Challenge),
             0x12 => Ok(MessageType::Proof),
             0x13 => Ok(MessageType::Flush),
@@ -98,7 +97,7 @@ impl Message {
         }
     }
 
-    pub fn as_vec(self) -> Vec<u8, MaxLoraPayloadLength> {
+    pub fn as_vec(self) -> Vec<u8, MAX_LORA_PAYLOAD_LENGTH> {
         self.0
     }
 }
@@ -142,14 +141,14 @@ impl PartialEq for ShortTermQueueItem {
 }
 
 #[cfg(any(feature = "debug", test))]
-type ShortTermQueueLength = U16;
+const SHORT_TERM_QUEUE_LENGTH: usize = 16;
 #[cfg(not(any(feature = "debug", test)))]
-type ShortTermQueueLength = U64;
+const SHORT_TERM_QUEUE_LENGTH: usize = 64;
 
 #[cfg(any(feature = "debug", test))]
-type LongTermQueueLength = U64;
+const LONG_TERM_QUEUE_LENGTH: usize = 64;
 #[cfg(not(any(feature = "debug", test)))]
-type LongTermQueueLength = U512;
+const LONG_TERM_QUEUE_LENGTH: usize = 512;
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
@@ -157,8 +156,8 @@ pub struct MessageStore<R: RngCore> {
     /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
     tick_duration: u16,
     tick_count: u16,
-    short_term_queue: Vec<ShortTermQueueItem, ShortTermQueueLength>, // TODO remove option?
-    long_term_queue: HistoryBuffer<MessageHash, LongTermQueueLength>,
+    short_term_queue: Vec<ShortTermQueueItem, SHORT_TERM_QUEUE_LENGTH>, // TODO remove option?
+    long_term_queue: HistoryBuffer<MessageHash, LONG_TERM_QUEUE_LENGTH>,
     rng: R,
 }
 
@@ -207,7 +206,7 @@ impl<R: RngCore> MessageStore<R> {
             when,
         };
 
-        if self.short_term_queue.len() == ShortTermQueueLength::USIZE {
+        if self.short_term_queue.len() == SHORT_TERM_QUEUE_LENGTH {
             return Err(Error::ShortTermQueueFull);
         }
 
@@ -220,10 +219,10 @@ impl<R: RngCore> MessageStore<R> {
     /// supposed to be driven by a timer, if current tick >= some of the scheduled ticks in the
     /// short term queue it means, the message was not seen during the timeout interval and should
     /// be scheduled for retransmission into the tx queue
-    pub fn tick_try_send(&mut self) -> Result<Vec<Message, U3>, ()> {
-        let mut result = Vec::<Message, U3>::new();
+    pub fn tick_try_send(&mut self) -> Result<Vec<Message, 3>, ()> {
+        let mut result = Vec::<Message, 3>::new();
         let mut idx: usize = 0;
-        let mut remove_indices = Vec::<usize, U3>::new();
+        let mut remove_indices = Vec::<usize, 3>::new();
 
         // FIXME only gather indices and swap_remove them one by on in other cycle
         for item in &self.short_term_queue {
@@ -253,7 +252,7 @@ impl<R: RngCore> MessageStore<R> {
             self.long_term_queue.write(hash);
         }
 
-        if self.tick_count == ShortTermQueueLength::U16 - 1 {
+        if self.tick_count == SHORT_TERM_QUEUE_LENGTH as u16 - 1 {
             self.tick_count = 0;
         } else {
             self.tick_count += 1;
@@ -265,10 +264,10 @@ impl<R: RngCore> MessageStore<R> {
     // will produce 0-ShortTermQueueLength, this will need tuning when timer set up
     fn get_interval(&mut self) -> u16 {
         let rng = self.rng.next_u32();
-        let mut interval = self.tick_count + (rng % ShortTermQueueLength::U32) as u16;
+        let mut interval = self.tick_count + (rng % SHORT_TERM_QUEUE_LENGTH as u32) as u16;
         // handle rollover
-        if interval > ShortTermQueueLength::U16 {
-            interval = interval - ShortTermQueueLength::U16 - 1;
+        if interval > SHORT_TERM_QUEUE_LENGTH as u16 {
+            interval = interval - SHORT_TERM_QUEUE_LENGTH as u16 - 1;
         }
         interval
     }
@@ -323,13 +322,13 @@ mod tests {
 
     #[test]
     fn test_try_from_into_hash_data() {
-        let hash = Vec::<u8, U16>::from_slice(&[
+        let hash = Vec::<u8, 16>::from_slice(&[
             // hash
             0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10,
             0xaa, 0x10,
         ])
         .unwrap();
-        let data = Vec::<u8, U239>::from_slice(&[
+        let data = Vec::<u8, 239>::from_slice(&[
             // type (other) + some data ->
             0x15, 0xda, 0x1a, 0xda, 0x1a,
         ])
@@ -351,7 +350,7 @@ mod tests {
         use rand::Error as RandError;
 
         #[derive(Debug)]
-        struct TestingRng(u8, Vec<u64, U64>);
+        struct TestingRng(u8, Vec<u64, 64>);
 
         impl RngCore for TestingRng {
             fn next_u32(&mut self) -> u32 {
@@ -500,7 +499,7 @@ mod tests {
             );
 
             // lets move 3 ticks before rollover
-            for _ in 0..(ShortTermQueueLength::USIZE - 3) {
+            for _ in 0..(SHORT_TERM_QUEUE_LENGTH - 3) {
                 store.tick_try_send().unwrap();
             }
 
@@ -531,7 +530,7 @@ mod tests {
             let mut store = MessageStore::new(rng);
 
             // let's receive 16 messages - full length of the queue
-            for n in 0..(ShortTermQueueLength::USIZE) {
+            for n in 0..(SHORT_TERM_QUEUE_LENGTH) {
                 let first_byte = (n + 100) as u8;
                 let m = Message(
                     Vec::from_slice(&[
@@ -590,7 +589,7 @@ mod tests {
             let mut store = MessageStore::new(rng);
 
             // let's receive 64 messages - full length of the long term queue
-            for n in 0..(LongTermQueueLength::USIZE) {
+            for n in 0..(LONG_TERM_QUEUE_LENGTH) {
                 let first_byte = (n + 100) as u8;
                 let m = Message(
                     Vec::from_slice(&[
