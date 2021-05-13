@@ -133,6 +133,8 @@ pub enum Message {
     GetNoise,
     /// Node reports noise values to host
     Noise { rssi_value: u8, rssi_wideband: u8 },
+    /// Firmware upgrade will follow
+    UpgradeFirmwareRequest,
 }
 
 impl fmt::Debug for Message {
@@ -150,7 +152,8 @@ impl fmt::Debug for Message {
             } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::GetNoise => write!(f, "GetNoise"),
-            Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband)
+            Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband),
+            Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
         }
     }
 }
@@ -205,6 +208,7 @@ impl FromStr for Message {
                 Ok(Message::Configure { region })
             }
             "get_noise" => Ok(Message::GetNoise),
+            "uf" => Ok(Message::UpgradeFirmwareRequest),
             _ => Err(ParseMessageError::InvalidMessage),
         }
     }
@@ -244,6 +248,7 @@ impl Message {
                 rssi_value: buf[1],
                 rssi_wideband: buf[2],
             }),
+            0xc8 => Ok(Message::UpgradeFirmwareRequest),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -258,6 +263,7 @@ impl Message {
             Message::Status { .. } => 1,
             Message::GetNoise => 0,
             Message::Noise { .. } => 2,
+            Message::UpgradeFirmwareRequest => 0,
         };
 
         1 + variable_part_length
@@ -305,6 +311,7 @@ impl Message {
                 enc.push(&[*rssi_value]).unwrap();
                 enc.push(&[*rssi_wideband]).unwrap();
             }
+            Message::UpgradeFirmwareRequest => enc.push(&[0xc8]).unwrap(),
         };
 
         encoded_len = enc.finalize().unwrap();
