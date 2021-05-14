@@ -153,8 +153,6 @@ const LONG_TERM_QUEUE_LENGTH: usize = 512;
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
 pub struct MessageStore<R: RngCore> {
-    /// one tick duration in ms, used for deciding expiration in [`Self::tick_try_send`]
-    tick_duration: u16,
     tick_count: u16,
     short_term_queue: Vec<ShortTermQueueItem, SHORT_TERM_QUEUE_LENGTH>, // TODO remove option?
     long_term_queue: HistoryBuffer<MessageHash, LONG_TERM_QUEUE_LENGTH>,
@@ -164,7 +162,6 @@ pub struct MessageStore<R: RngCore> {
 impl<R: RngCore> MessageStore<R> {
     pub fn new(rng: R) -> Self {
         MessageStore {
-            tick_duration: Default::default(),
             tick_count: Default::default(),
             short_term_queue: Default::default(),
             long_term_queue: HistoryBuffer::new(),

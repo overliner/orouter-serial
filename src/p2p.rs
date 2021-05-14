@@ -27,8 +27,8 @@ use rand::prelude::*;
 /// | total_count | 1               | total count of messages with this prefix               |
 /// | length      | 1               | length of data                                         |
 /// | data        | 1 - 248         | actual data                                            |
-pub const MaxLoraMessageSize: usize = 255;
-pub type P2pMessagePart = Vec<u8, MaxLoraMessageSize>;
+pub const MAX_LORA_MESSAGE_SIZE: usize = 255;
+pub type P2pMessagePart = Vec<u8, MAX_LORA_MESSAGE_SIZE>;
 
 const MAX_OVERLINE_MESSAGE_LENGTH: usize = 512;
 const MAX_P2P_MESSAGE_PART_COUNT: usize = 3;
@@ -240,7 +240,7 @@ impl MessageSlicer {
             prefix.push(self.rng.gen()).unwrap();
         }
         let mut res = Vec::<P2pMessagePart, MAX_P2P_MESSAGE_PART_COUNT>::new();
-        let chunks = msg.chunks(MaxLoraMessageSize - HEADER_LENGTH);
+        let chunks = msg.chunks(MAX_LORA_MESSAGE_SIZE - HEADER_LENGTH);
         let total_count = chunks.len();
         for (i, part_bytes) in chunks.enumerate() {
             let mut p = P2pMessagePart::new();
@@ -546,7 +546,7 @@ mod tests {
     fn test_slicer_two_parts() {
         let mut s = MessageSlicer::new(0xdead_beef_cafe_d00d);
         let mut test_data_message = Vec::<u8, MAX_OVERLINE_MESSAGE_LENGTH>::new();
-        for b in core::iter::repeat(0xff).take(MaxLoraMessageSize - HEADER_LENGTH) {
+        for b in core::iter::repeat(0xff).take(MAX_LORA_MESSAGE_SIZE - HEADER_LENGTH) {
             test_data_message.push(b).unwrap();
         }
         test_data_message
