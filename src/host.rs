@@ -15,7 +15,7 @@ use heapless::Vec;
 
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
-pub const MAX_MESSAGE_QUEUE_LENGTH: usize = 4;
+pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 
 /// Computed as
 ///
@@ -361,26 +361,23 @@ impl Message {
     }
 }
 
-pub struct MessageReader {
+pub struct MessageReader<const QL: usize> {
     buf: Vec<u8, 792>,
 }
 
-impl MessageReader {
+impl<const QL: usize> MessageReader<QL> {
     pub fn new() -> Self {
         Self {
             buf: Vec::<u8, 792>::new(),
         }
     }
 
-    pub fn process_bytes(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<Vec<Message, MAX_MESSAGE_QUEUE_LENGTH>, Error> {
+    pub fn process_bytes(&mut self, bytes: &[u8]) -> Result<Vec<Message, QL>, Error> {
         self.buf
             .extend_from_slice(bytes)
             .map_err(|_| Error::BufferFull)?;
 
-        let mut output = Vec::<Message, MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut output = Vec::<Message, QL>::new();
         let mut cobs_index: usize = 0;
 
         if !&self.buf.contains(&COBS_SENTINEL) {
@@ -392,7 +389,7 @@ impl MessageReader {
                     Ok(command) => {
                         self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
-                        if output.len() < MAX_MESSAGE_QUEUE_LENGTH {
+                        if output.len() < QL {
                             output.push(command).unwrap();
                         } else {
                             return Err(Error::MessageQueueFull);
@@ -416,10 +413,7 @@ impl MessageReader {
         Ok(output)
     }
 
-    pub fn process_bytes_hex(
-        &mut self,
-        hex_bytes: &[u8],
-    ) -> Result<Vec<Message, MAX_MESSAGE_QUEUE_LENGTH>, Error> {
+    pub fn process_bytes_hex(&mut self, hex_bytes: &[u8]) -> Result<Vec<Message, QL>, Error> {
         let mut decoded = Vec::<u8, 64>::new();
         decoded.resize_default(64).unwrap();
         match base16::decode_slice(&hex_bytes, &mut decoded) {
@@ -445,7 +439,7 @@ impl MessageReader {
     }
 }
 
-impl Default for MessageReader {
+impl<const QL: usize> Default for MessageReader<QL> {
     fn default() -> Self {
         Self::new()
     }
@@ -488,13 +482,13 @@ mod tests {
 
     #[test]
     fn test_process_with_no_bytes_is_empty() {
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(cr.process_bytes(&[][..]).unwrap().len(), 0);
     }
 
     #[test]
     fn test_process_with_no_full_message_is_empty() {
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(cr.process_bytes(&[0x01, 0x02][..]).unwrap().len(), 0);
     }
 
@@ -541,7 +535,7 @@ mod tests {
     #[test]
     fn test_single_message_decoding() {
         let encoded = &[0x03, 0xc2, 0xff, 0x00];
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes(&encoded[..]).unwrap();
 
         let expected_msg_0 = Message::Configure { region: 255u8 };
@@ -567,7 +561,7 @@ mod tests {
             start = start + written + 1;
         }
 
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes(&encoded_buffer[..]).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(
@@ -608,7 +602,7 @@ mod tests {
             );
             start = start + written + 1;
         }
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let err = cr.process_bytes(&encoded_buffer[..]);
         assert_eq!(err, Err(Error::MessageQueueFull));
     }
@@ -646,7 +640,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_ok() {
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes(buf.as_ref()).unwrap();
         let res = cr.ltrim(buf.len());
@@ -655,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_err() {
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes(buf.as_ref()).unwrap();
         let err = cr.ltrim(buf.len() + 1);
@@ -683,7 +677,7 @@ mod tests {
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = hex_frames[0].clone();
-        let mut cr = MessageReader::new();
+        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
             .process_bytes_hex(&hex_frame[1..hex_frame.len() - 1])
             .unwrap();
@@ -714,7 +708,7 @@ mod tests {
             code: StatusCode::ErrBusyLoraTransmitting,
         };
         let encoded = msg.encode().unwrap();
-        let mut mr = MessageReader::new();
+        let mut mr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = mr.process_bytes(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
