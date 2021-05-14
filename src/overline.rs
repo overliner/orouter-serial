@@ -97,7 +97,7 @@ impl Message {
         }
     }
 
-    pub fn as_vec(self) -> Vec<u8, MAX_LORA_PAYLOAD_LENGTH> {
+    pub fn to_vec(self) -> Vec<u8, MAX_LORA_PAYLOAD_LENGTH> {
         self.0
     }
 }

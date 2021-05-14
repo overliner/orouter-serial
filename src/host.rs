@@ -177,7 +177,7 @@ impl FromStr for Message {
     type Err = ParseMessageError;
 
     fn from_str(s: &str) -> Result<Self, ParseMessageError> {
-        if !s.contains("@") {
+        if !s.contains('@') {
             return Err(ParseMessageError::MissingSeparator);
         }
 
@@ -189,14 +189,14 @@ impl FromStr for Message {
                 let mut data = Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::new();
                 let clean_val = match val.starts_with("0x") || val.starts_with("0X") {
                     true => &val[2..],
-                    false => &val[..],
+                    false => &val,
                 };
                 if clean_val.len() / 2 > crate::overline::MAX_LORA_PAYLOAD_LENGTH {
                     return Err(ParseMessageError::PayloadTooLong);
                 }
                 data.resize_default(clean_val.len() / 2)
                     .map_err(|_| ParseMessageError::InvalidPayloadLength)?;
-                if let Err(_) = base16::decode_slice(clean_val, &mut data) {
+                if base16::decode_slice(clean_val, &mut data).is_err() {
                     return Err(ParseMessageError::InvalidPayloadLength);
                 }
 
@@ -214,6 +214,7 @@ impl FromStr for Message {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Message {
     pub fn try_from(buf: &mut [u8]) -> Result<Message, Error> {
         if buf.is_empty() {
@@ -316,7 +317,7 @@ impl Message {
 
         encoded_len = enc.finalize().unwrap();
         result.push(COBS_SENTINEL).unwrap();
-        result.truncate(encoded_len + 1 as usize);
+        result.truncate(encoded_len + 1_usize);
         Ok(result)
     }
 
