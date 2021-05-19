@@ -463,7 +463,7 @@ mod tests {
             Message::Report {
                 region: 0x01,
                 sn: 12345678u32,
-                version_data: 00_01_00_01u32, // firmware version 0.1.0, hw revision 1
+                version_data: 0x00_01_00_01u32, // firmware version 0.1.0, hw revision 1
                 receive_queue_size: 1,
                 transmit_queue_size: 3
             }
