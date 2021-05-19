@@ -123,6 +123,8 @@ pub enum Message {
     Report {
         /// BE encoded
         sn: u32,
+        /// BE encoded
+        version_data: u32,
         region: u8,
         receive_queue_size: u8,
         transmit_queue_size: u8,
@@ -146,10 +148,11 @@ impl fmt::Debug for Message {
             Message::ReportRequest => write!(f, "ReportRequest"),
             Message::Report {
                 sn,
+                version_data,
                 region,
                 receive_queue_size,
                 transmit_queue_size,
-            } => write!(f, "Report {{ sn: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, region, receive_queue_size, transmit_queue_size),
+            } => write!(f, "Report {{ sn: {:?}, version_data: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::GetNoise => write!(f, "GetNoise"),
             Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband),
@@ -237,9 +240,10 @@ impl Message {
             0xc3 => Ok(Message::ReportRequest),
             0xc4 => Ok(Message::Report {
                 sn: u32::from_be_bytes(buf[1..5].try_into().unwrap()),
-                region: buf[5],
-                receive_queue_size: buf[6],
-                transmit_queue_size: buf[7],
+                version_data: u32::from_be_bytes(buf[5..9].try_into().unwrap()),
+                region: buf[9],
+                receive_queue_size: buf[10],
+                transmit_queue_size: buf[11],
             }),
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().unwrap(),
@@ -260,7 +264,7 @@ impl Message {
             Message::ReceiveData { data } => data.len(),
             Message::Configure { .. } => 1,
             Message::ReportRequest => 0,
-            Message::Report { .. } => 7,
+            Message::Report { .. } => 11,
             Message::Status { .. } => 1,
             Message::GetNoise => 0,
             Message::Noise { .. } => 2,
@@ -290,12 +294,14 @@ impl Message {
             Message::ReportRequest => enc.push(&[0xc3]).unwrap(),
             Message::Report {
                 sn,
+                version_data,
                 region,
                 receive_queue_size,
                 transmit_queue_size,
             } => {
                 enc.push(&[0xc4]).unwrap();
                 enc.push(&u32::to_be_bytes(*sn)).unwrap();
+                enc.push(&u32::to_be_bytes(*version_data)).unwrap();
                 enc.push(&[*region]).unwrap();
                 enc.push(&[*receive_queue_size]).unwrap();
                 enc.push(&[*transmit_queue_size]).unwrap();
@@ -453,10 +459,11 @@ mod tests {
     #[test]
     fn test_msg_len() {
         assert_eq!(
-            8,
+            12,
             Message::Report {
                 region: 0x01,
                 sn: 12345678u32,
+                version_data: 00_01_00_01u32, // firmware version 0.1.0, hw revision 1
                 receive_queue_size: 1,
                 transmit_queue_size: 3
             }
