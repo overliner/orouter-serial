@@ -217,24 +217,16 @@ impl FromStr for Message {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
-impl Message {
-    pub fn try_from(buf: &mut [u8]) -> Result<Message, Error> {
-        if buf.is_empty() {
-            return Err(Error::MalformedMessage);
-        };
+impl TryFrom<&[u8]> for Message {
+    type Error = Error;
 
-        let decoded_len = match cobs::decode_in_place_with_sentinel(buf, COBS_SENTINEL) {
-            Ok(len) => len,
-            Err(_) => return Err(Error::MalformedMessage),
-        };
-
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         match buf[0] {
             0xc0 => Ok(Message::SendData {
-                data: Vec::<u8, 255>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..]).unwrap(),
             }),
             0xc1 => Ok(Message::ReceiveData {
-                data: Vec::<u8, 255>::from_slice(&buf[1..decoded_len]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..]).unwrap(),
             }),
             0xc2 => Ok(Message::Configure { region: buf[1] }),
             0xc3 => Ok(Message::ReportRequest),
@@ -257,6 +249,22 @@ impl Message {
             _ => Err(Error::MalformedMessage),
         }
     }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Message {
+    pub fn try_from_cobs(buf: &mut [u8]) -> Result<Message, Error> {
+        if buf.is_empty() {
+            return Err(Error::MalformedMessage);
+        };
+
+        let decoded_len = match cobs::decode_in_place_with_sentinel(buf, COBS_SENTINEL) {
+            Ok(len) => len,
+            Err(_) => return Err(Error::MalformedMessage),
+        };
+
+        Message::try_from(&buf[0..decoded_len])
+    }
 
     pub fn len(&self) -> usize {
         let variable_part_length = match self {
@@ -274,24 +282,21 @@ impl Message {
         1 + variable_part_length
     }
 
-    pub fn encode(&self) -> Result<HostMessageVec, Error> {
-        let mut result = HostMessageVec::new(); // Maximum message length is 256 + cobs overhead
-        let mut encoded_len = cobs::max_encoding_length(self.len() + 1);
-        result.resize_default(encoded_len).unwrap();
-        let mut enc = cobs::CobsEncoder::new(&mut result);
+    pub fn as_bytes(&self) -> Vec<u8, MAX_MESSAGE_LENGTH> {
+        let mut res = Vec::new();
         match self {
             Message::SendData { data } => {
-                enc.push(&[0xc0]).unwrap();
-                enc.push(&data).unwrap();
+                res.push(0xc0).unwrap();
+                res.extend_from_slice(&data).unwrap();
             }
             Message::ReceiveData { data } => {
-                enc.push(&[0xc1]).unwrap();
-                enc.push(&data).unwrap();
+                res.push(0xc1).unwrap();
+                res.extend_from_slice(&data).unwrap();
             }
             Message::Configure { region } => {
-                enc.push(&[0xc2, *region]).unwrap();
+                res.extend_from_slice(&[0xc2, *region]).unwrap();
             }
-            Message::ReportRequest => enc.push(&[0xc3]).unwrap(),
+            Message::ReportRequest => res.push(0xc3).unwrap(),
             Message::Report {
                 sn,
                 version_data,
@@ -299,27 +304,35 @@ impl Message {
                 receive_queue_size,
                 transmit_queue_size,
             } => {
-                enc.push(&[0xc4]).unwrap();
-                enc.push(&u32::to_be_bytes(*sn)).unwrap();
-                enc.push(&u32::to_be_bytes(*version_data)).unwrap();
-                enc.push(&[*region]).unwrap();
-                enc.push(&[*receive_queue_size]).unwrap();
-                enc.push(&[*transmit_queue_size]).unwrap();
+                res.push(0xc4).unwrap();
+                res.extend_from_slice(&u32::to_be_bytes(*sn)).unwrap();
+                res.extend_from_slice(&u32::to_be_bytes(*version_data))
+                    .unwrap();
+                res.extend_from_slice(&[*region, *receive_queue_size, *transmit_queue_size])
+                    .unwrap();
             }
             Message::Status { code } => {
-                enc.push(&[0xc5, code.clone() as u8]).unwrap();
+                res.extend_from_slice(&[0xc5, code.clone() as u8]).unwrap();
             }
-            Message::GetNoise => enc.push(&[0xc6]).unwrap(),
+            Message::GetNoise => res.push(0xc6).unwrap(),
             Message::Noise {
                 rssi_value,
                 rssi_wideband,
             } => {
-                enc.push(&[0xc7]).unwrap();
-                enc.push(&[*rssi_value]).unwrap();
-                enc.push(&[*rssi_wideband]).unwrap();
+                res.extend_from_slice(&[0xc7, *rssi_value, *rssi_wideband])
+                    .unwrap();
             }
-            Message::UpgradeFirmwareRequest => enc.push(&[0xc8]).unwrap(),
+            Message::UpgradeFirmwareRequest => res.push(0xc8).unwrap(),
         };
+        res
+    }
+
+    pub fn encode(&self) -> Result<HostMessageVec, Error> {
+        let mut result = HostMessageVec::new(); // Maximum message length is 256 + cobs overhead
+        let mut encoded_len = cobs::max_encoding_length(self.len() + 1);
+        result.resize_default(encoded_len).unwrap();
+        let mut enc = cobs::CobsEncoder::new(&mut result);
+        enc.push(self.as_bytes().as_slice()).unwrap();
 
         encoded_len = enc.finalize().unwrap();
         result.push(COBS_SENTINEL).unwrap();
@@ -391,7 +404,7 @@ impl<const QL: usize> MessageReader<QL> {
         }
         loop {
             if self.buf[cobs_index] == COBS_SENTINEL {
-                match Message::try_from(&mut self.buf[0..cobs_index]) {
+                match Message::try_from_cobs(&mut self.buf[0..cobs_index]) {
                     Ok(command) => {
                         self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
