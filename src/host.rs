@@ -5,7 +5,7 @@
 //! These are not part of Overline specification
 //!
 //! When application wants to send messages to overline node, it it supposed to use this library
-//! for correct communication - especially [`Message::as_cobs_encoded_serial_frames`](enum.Message.html#method.as_cobs_encoded_serial_frames)
+//! for correct communication - especially [`Message::as_cobs_encoded_usb_frames`](enum.Message.html#method.as_cobs_encoded_usb_frames)
 //! method is crucial for communication to work as it makes sure the messages is COBS encoded
 //! AND split to maximum size frames suitable for the node's serial interface
 use core::convert::{TryFrom, TryInto};
@@ -31,18 +31,29 @@ pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 ///
 pub const MAX_MESSAGE_LENGTH: usize = 260;
 pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
+
+const MAX_BLE_FRAME_LENGTH: usize = 128; // BLE can only process this
+const MAX_USB_FRAME_LENGTH: usize = 256; // USB can only process this
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
+
 /// cannot run calculation in const declaration
 /// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);
 /// which is min(1, 520 % 128) = min(1, 8) = 1
-const MAX_HEX_ENCODED_FRAMES_COUNT_REMAINDER: usize = 1;
+const MAX_BLE_FRAMES_COUNT_REMAINDER: usize = 1;
 
-pub const MAX_HEX_ENCODED_FRAMES_COUNT: usize = MAX_MESSAGE_LENGTH_HEX_ENCODED
-    / MAX_SERIAL_FRAME_LENGTH
-    + MAX_HEX_ENCODED_FRAMES_COUNT_REMAINDER;
+/// cannot run calculation in const declaration
+/// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);
+/// which is min(1, 260 % 256) = min(1, 1) = 1
+const MAX_USB_FRAMES_COUNT_REMAINDER: usize = 1;
 
-const MAX_SERIAL_FRAME_LENGTH: usize = 128; // BLE can only process this
-type SerialFrameVec = Vec<u8, MAX_SERIAL_FRAME_LENGTH>;
+pub const MAX_USB_FRAMES_COUNT: usize =
+    MAX_MESSAGE_LENGTH / MAX_USB_FRAME_LENGTH + MAX_USB_FRAMES_COUNT_REMAINDER;
+
+pub const MAX_BLE_FRAMES_COUNT: usize =
+    MAX_MESSAGE_LENGTH_HEX_ENCODED / MAX_BLE_FRAME_LENGTH + MAX_BLE_FRAMES_COUNT_REMAINDER;
+
+type UsbSerialFrameVec = Vec<u8, MAX_USB_FRAME_LENGTH>;
+type BleSerialFrameVec = Vec<u8, MAX_BLE_FRAME_LENGTH>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -340,16 +351,16 @@ impl Message {
         Ok(result)
     }
 
-    /// Serializes messages using COBS encoding and DOES terminate it with COBS_SENTINEL
-    /// Returned Vecs can be send as is over the wire, it itself is a valid host protocol packet
-    pub fn as_cobs_encoded_serial_frames(
+    /// Splits COBS encoded self to frames for sending.
+    /// Frames can be send as is over the wire, it itself is a valid host protocol packet
+    pub fn as_cobs_encoded_usb_frames(
         &self,
-    ) -> Result<Vec<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>, Error> {
+    ) -> Result<Vec<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>, Error> {
         let mut result = self.encode().unwrap();
-        let mut frames = Vec::<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>::new();
-        for chunk in result.chunks_mut(MAX_SERIAL_FRAME_LENGTH) {
+        let mut frames = Vec::<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>::new();
+        for chunk in result.chunks_mut(MAX_USB_FRAME_LENGTH) {
             frames
-                .push(SerialFrameVec::from_slice(&chunk).unwrap())
+                .push(UsbSerialFrameVec::from_slice(&chunk).unwrap())
                 .unwrap()
         }
         Ok(frames)
@@ -361,16 +372,16 @@ impl Message {
     pub fn as_cobs_encoded_frames_for_ble(
         &self,
         ble_serial_delimiter: char,
-    ) -> Result<Vec<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>, Error> {
+    ) -> Result<Vec<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>, Error> {
         let result = self.encode().unwrap();
         let mut hex_result = Vec::<u8, MAX_MESSAGE_LENGTH_HEX_ENCODED>::new();
         hex_result.resize_default(result.len() * 2).unwrap();
         base16::encode_config_slice(&result, base16::EncodeLower, &mut hex_result);
 
         // wrap each chunk in a delimiter char
-        let mut frames = Vec::<SerialFrameVec, MAX_HEX_ENCODED_FRAMES_COUNT>::new();
-        for chunk in hex_result.chunks_mut(MAX_SERIAL_FRAME_LENGTH - 2) {
-            let mut frame = SerialFrameVec::new();
+        let mut frames = Vec::<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>::new();
+        for chunk in hex_result.chunks_mut(MAX_BLE_FRAME_LENGTH - 2) {
+            let mut frame = BleSerialFrameVec::new();
             frame.push(ble_serial_delimiter as u8).unwrap();
             frame.extend_from_slice(&chunk).unwrap();
             frame.push(ble_serial_delimiter as u8).unwrap();
@@ -539,13 +550,13 @@ mod tests {
             data: Vec::<u8, 255>::from_slice(&encoded[..]).unwrap(),
         };
 
-        let frames = msg.as_cobs_encoded_serial_frames().unwrap();
+        let frames = msg.as_cobs_encoded_usb_frames().unwrap();
 
-        assert_eq!(frames.len(), 3);
+        assert_eq!(frames.len(), 2);
 
         let result = &frames[0];
         let last_frame = &frames.last().unwrap();
-        assert_eq!(result.len(), MAX_SERIAL_FRAME_LENGTH);
+        assert_eq!(result.len(), MAX_USB_FRAME_LENGTH);
         for b in &result[0..result.len() - 2] {
             assert_ne!(0x00, *b);
         }
@@ -628,10 +639,10 @@ mod tests {
     }
 
     #[test]
-    fn test_single_message_encoding_as_cobs_encoded_serial_frames() {
+    fn test_single_message_encoding_as_cobs_encoded_usb_frames() {
         let expected = &[0x03, 0xc2, 0xff, 0x00];
         let msg = Message::Configure { region: 255u8 };
-        let frames = msg.as_cobs_encoded_serial_frames().unwrap();
+        let frames = msg.as_cobs_encoded_usb_frames().unwrap();
 
         assert_eq!(frames.len(), 1);
         let result = &frames[0];
@@ -650,8 +661,8 @@ mod tests {
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames
-        let frames = msg.as_cobs_encoded_serial_frames().unwrap();
-        assert_eq!(frames.len(), 3);
+        let frames = msg.as_cobs_encoded_usb_frames().unwrap();
+        assert_eq!(frames.len(), 2);
 
         // lets check the the second (last) frame has COBS_SENTINEL at the end
         let last_frame = &frames.last().unwrap();
@@ -719,7 +730,7 @@ mod tests {
         let frames = msg
             .as_cobs_encoded_frames_for_ble(BLE_SERIAL_DELIMITER)
             .unwrap();
-        assert_eq!(frames.len(), MAX_HEX_ENCODED_FRAMES_COUNT);
+        assert_eq!(frames.len(), MAX_BLE_FRAMES_COUNT);
     }
 
     #[test]
