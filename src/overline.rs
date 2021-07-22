@@ -25,14 +25,41 @@ pub enum Error {
 }
 
 // FIXME define these according to the design document
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum MessageType {
+    Data,
     Challenge,
     Proof,
     Flush,
     Receipt,
     Other,
+}
+
+impl From<u8> for MessageType {
+    fn from(n: u8) -> Self {
+        match n {
+            0x01 => Self::Data,
+            0x02 => Self::Challenge,
+            0x03 => Self::Proof,
+            0x04 => Self::Flush,
+            0x05 => Self::Receipt,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl Into<u8> for MessageType {
+    fn into(self) -> u8 {
+        match self {
+            Self::Data => 0x01,
+            Self::Challenge => 0x02,
+            Self::Proof => 0x03,
+            Self::Flush => 0x04,
+            Self::Receipt => 0x05,
+            Self::Other => 0xff,
+        }
+    }
 }
 
 /// Logical message of overline protocol - does not contain any link level data
