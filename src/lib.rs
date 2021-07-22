@@ -5,7 +5,6 @@
 
 pub mod host;
 pub mod overline;
-pub mod p2p;
 
 // include defmt::Format implementations
 // we don't want them derive()d in the modules unless defmt-impl feature is set
