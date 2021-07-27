@@ -14,6 +14,8 @@ use core::fmt;
 use core::str::FromStr;
 use heapless::Vec;
 
+pub mod codec;
+
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
@@ -31,30 +33,7 @@ pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 /// ```
 ///
 pub const MAX_MESSAGE_LENGTH: usize = 260;
-pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
-
-const MAX_BLE_FRAME_LENGTH: usize = 128; // BLE can only process this
-const MAX_USB_FRAME_LENGTH: usize = 256; // USB can only process this
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
-
-/// cannot run calculation in const declaration
-/// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);
-/// which is min(1, 520 % 128) = min(1, 8) = 1
-const MAX_BLE_FRAMES_COUNT_REMAINDER: usize = 1;
-
-/// cannot run calculation in const declaration
-/// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);
-/// which is min(1, 260 % 256) = min(1, 1) = 1
-const MAX_USB_FRAMES_COUNT_REMAINDER: usize = 1;
-
-pub const MAX_USB_FRAMES_COUNT: usize =
-    MAX_MESSAGE_LENGTH / MAX_USB_FRAME_LENGTH + MAX_USB_FRAMES_COUNT_REMAINDER;
-
-pub const MAX_BLE_FRAMES_COUNT: usize =
-    MAX_MESSAGE_LENGTH_HEX_ENCODED / MAX_BLE_FRAME_LENGTH + MAX_BLE_FRAMES_COUNT_REMAINDER;
-
-type UsbSerialFrameVec = Vec<u8, MAX_USB_FRAME_LENGTH>;
-type BleSerialFrameVec = Vec<u8, MAX_BLE_FRAME_LENGTH>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -354,86 +333,10 @@ impl Message {
 
     /// Splits COBS encoded self to frames for sending.
     /// Frames can be send as is over the wire, it itself is a valid host protocol packet
-    pub fn as_frames<C: WireCodec>(&self) -> Result<C::Frames, Error> {
+    pub fn as_frames<C: codec::WireCodec>(&self) -> Result<C::Frames, Error> {
         let mut result = self.encode().unwrap();
         let frames = C::get_frames(&mut result[..])?;
         Ok(frames)
-    }
-}
-
-pub trait WireCodec {
-    const MESSAGE_DELIMITER: Option<char>;
-    type Frames;
-    type IncomingFrame: IntoIterator<Item = u8>;
-
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error>;
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error>;
-}
-
-pub struct Rn4870Codec {}
-
-impl WireCodec for Rn4870Codec {
-    const MESSAGE_DELIMITER: Option<char> = Some('%');
-    type Frames = Vec<BleSerialFrameVec, 5>;
-    type IncomingFrame = BleSerialFrameVec;
-
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
-        let mut hex_result = Vec::<u8, MAX_MESSAGE_LENGTH_HEX_ENCODED>::new();
-        hex_result.resize_default(data.len() * 2).unwrap();
-        base16::encode_config_slice(&data, base16::EncodeLower, &mut hex_result);
-
-        // wrap each chunk in a delimiter char
-        let mut frames = Vec::<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>::new();
-        for chunk in hex_result.chunks_mut(MAX_BLE_FRAME_LENGTH - 2) {
-            let mut frame = BleSerialFrameVec::new();
-            if let Some(delim) = Self::MESSAGE_DELIMITER {
-                frame.push(delim as u8).unwrap();
-            };
-            frame.extend_from_slice(&chunk).unwrap();
-            if let Some(delim) = Self::MESSAGE_DELIMITER {
-                frame.push(delim as u8).unwrap();
-            };
-            frames.push(frame).unwrap()
-        }
-        Ok(frames)
-    }
-
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
-        let mut decoded = Vec::<u8, 64>::new();
-        decoded.resize_default(64).unwrap();
-        match base16::decode_slice(&data, &mut decoded) {
-            Ok(decoded_len) => {
-                let result = Vec::from_slice(&decoded[0..decoded_len])
-                    .map_err(|_| Error::MalformedMessage)?;
-                Ok((result, decoded_len))
-            }
-            Err(e) => Err(Error::MalformedHex(e)),
-        }
-    }
-}
-
-pub struct UsbCodec {}
-
-impl WireCodec for UsbCodec {
-    type Frames = Vec<UsbSerialFrameVec, 2>;
-    type IncomingFrame = UsbSerialFrameVec;
-    const MESSAGE_DELIMITER: Option<char> = None;
-
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
-        let mut frames = Vec::<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>::new();
-        for chunk in data.chunks_mut(MAX_USB_FRAME_LENGTH) {
-            frames
-                .push(UsbSerialFrameVec::from_slice(&chunk).unwrap())
-                .unwrap()
-        }
-        Ok(frames)
-    }
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
-        let mut decoded = UsbSerialFrameVec::new();
-        decoded
-            .extend_from_slice(data)
-            .map_err(|_| Error::MalformedMessage)?;
-        Ok((decoded, data.len()))
     }
 }
 
@@ -448,7 +351,10 @@ impl<const QL: usize> MessageReader<QL> {
         }
     }
 
-    pub fn process_bytes<C: WireCodec>(&mut self, bytes: &[u8]) -> Result<Vec<Message, QL>, Error> {
+    pub fn process_bytes<C: codec::WireCodec>(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Vec<Message, QL>, Error> {
         let (bytes, decoded_len) = C::decode_frame(bytes)?;
         if self.buf.len() + decoded_len > 792 {
             return Err(Error::BufferFull);
@@ -562,14 +468,17 @@ mod tests {
     #[test]
     fn test_process_with_no_bytes_is_empty() {
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
-        assert_eq!(cr.process_bytes::<UsbCodec>(&[][..]).unwrap().len(), 0);
+        assert_eq!(
+            cr.process_bytes::<codec::UsbCodec>(&[][..]).unwrap().len(),
+            0
+        );
     }
 
     #[test]
     fn test_process_with_no_full_message_is_empty() {
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(
-            cr.process_bytes::<UsbCodec>(&[0x01, 0x02][..])
+            cr.process_bytes::<codec::UsbCodec>(&[0x01, 0x02][..])
                 .unwrap()
                 .len(),
             0
@@ -577,50 +486,10 @@ mod tests {
     }
 
     #[test]
-    fn test_broken_case_1() {
-        let encoded = &[
-            0xaa, 0xd6, 0xbb, 0x28, 0x44, 0xf8, 0x47, 0xfd, 0xf7, 0xd8, 0x25, 0xfe, 0x74, 0x07,
-            0xd6, 0x39, 0x1a, 0xce, 0xcd, 0xa2, 0xfb, 0xbf, 0xa1, 0xe0, 0x26, 0x60, 0x49, 0x7b,
-            0x84, 0x97, 0x5b, 0x75, 0x5d, 0xd8, 0xe7, 0x3e, 0xd6, 0x25, 0x90, 0x5a, 0x21, 0x03,
-            0x77, 0x68, 0xcf, 0xf2, 0xff, 0x5c, 0xe3, 0x5c, 0x77, 0x59, 0x6e, 0x59, 0x0c, 0xcc,
-            0x23, 0x44, 0x1e, 0xe4, 0x78, 0x4d, 0xe7, 0x97, 0x13, 0x4d, 0xe9, 0x2e, 0xc0, 0x8b,
-            0xb0, 0x46, 0xd2, 0x3a, 0x27, 0x3a, 0xd5, 0x2f, 0xdb, 0x96, 0x29, 0x92, 0x2f, 0x5e,
-            0x79, 0x9f, 0x6f, 0x66, 0x6b, 0x6d, 0xd7, 0xa9, 0x7f, 0x0f, 0xae, 0x64, 0x75, 0x80,
-            0x2b, 0xca, 0xba, 0xd7, 0xf6, 0x8c, 0x1c, 0xcf, 0xe9, 0x67, 0xb6, 0xdb, 0x1a, 0x27,
-            0x10, 0x3a, 0xf3, 0xa4, 0x1d, 0x00, 0xb2, 0x6d, 0x1e, 0x48, 0x59, 0xaf, 0x28, 0x1a,
-            0x43, 0x3d, 0xe9, 0x9e, 0xe6, 0xc5, 0x06, 0xdd, 0x63, 0x9a, 0x1c, 0x72, 0xb9, 0x3f,
-            0x76, 0x96, 0x63, 0xf4, 0x8a, 0x5b, 0x7b, 0x3a, 0xb2, 0xd8, 0x9f, 0x90, 0x98, 0xfc,
-            0x49, 0x71, 0x1d, 0x79, 0xae, 0x88, 0x74, 0x1a, 0xe7, 0xdf, 0x43, 0x04, 0x66, 0xd3,
-            0xe5, 0x24, 0x92, 0xec, 0xde, 0xe4, 0x15, 0x4b, 0x4d, 0xbe, 0x09, 0x02, 0x13, 0x41,
-            0x2a, 0xcf, 0x38, 0xe8, 0x01, 0x91, 0xb5, 0x1b, 0xa8, 0xc5, 0xcd, 0xbb, 0xa8, 0x3a,
-            0xaa, 0xd0, 0x80, 0xf7, 0x80, 0xee, 0x64, 0xde, 0xa8, 0xe7, 0xa4, 0xd0, 0x47, 0x05,
-            0xdc, 0x50, 0xf6, 0x33, 0x40, 0xe8, 0x90, 0xaa, 0x7a, 0xe5, 0x71, 0x32, 0x1a, 0x2a,
-            0xfd, 0xc7, 0x4b, 0x3d, 0x85, 0xb2, 0x0d, 0x58, 0x09, 0xdb, 0xaf, 0x70, 0x31, 0x22,
-            0xf1, 0x1d, 0x92, 0x81, 0x19, 0x44, 0x92, 0xe5, 0x8d, 0xb5, 0xad, 0x64, 0x24, 0x7b,
-            0xf4, 0x3b, 0xf8,
-        ];
-        let msg = Message::SendData {
-            data: Vec::<u8, 255>::from_slice(&encoded[..]).unwrap(),
-        };
-
-        let frames = msg.as_frames::<UsbCodec>().unwrap();
-
-        assert_eq!(frames.len(), 2);
-
-        let result = &frames[0];
-        let last_frame = &frames.last().unwrap();
-        assert_eq!(result.len(), MAX_USB_FRAME_LENGTH);
-        for b in &result[0..result.len() - 2] {
-            assert_ne!(0x00, *b);
-        }
-        assert_eq!(Some(&0x00), last_frame.last());
-    }
-
-    #[test]
     fn test_single_message_decoding() {
         let encoded = &[0x03, 0xc2, 0xff, 0x00];
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
-        let messages = cr.process_bytes::<UsbCodec>(&encoded[..]).unwrap();
+        let messages = cr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
 
         let expected_msg_0 = Message::Configure { region: 255u8 };
         assert_eq!(messages.len(), 1);
@@ -646,7 +515,9 @@ mod tests {
         }
 
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
-        let messages = cr.process_bytes::<UsbCodec>(&encoded_buffer[..]).unwrap();
+        let messages = cr
+            .process_bytes::<codec::UsbCodec>(&encoded_buffer[..])
+            .unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(
             messages[0],
@@ -687,7 +558,7 @@ mod tests {
             start = start + written + 1;
         }
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
-        let err = cr.process_bytes::<UsbCodec>(&encoded_buffer[..]);
+        let err = cr.process_bytes::<codec::UsbCodec>(&encoded_buffer[..]);
         assert_eq!(err, Err(Error::MessageQueueFull));
     }
 
@@ -695,7 +566,7 @@ mod tests {
     fn test_single_message_encoding_as_cobs_encoded_usb_frames() {
         let expected = &[0x03, 0xc2, 0xff, 0x00];
         let msg = Message::Configure { region: 255u8 };
-        let frames = msg.as_frames::<UsbCodec>().unwrap();
+        let frames = msg.as_frames::<codec::UsbCodec>().unwrap();
 
         assert_eq!(frames.len(), 1);
         let result = &frames[0];
@@ -714,7 +585,7 @@ mod tests {
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames
-        let frames = msg.as_frames::<UsbCodec>().unwrap();
+        let frames = msg.as_frames::<codec::UsbCodec>().unwrap();
         assert_eq!(frames.len(), 2);
 
         // lets check the the second (last) frame has COBS_SENTINEL at the end
@@ -726,7 +597,7 @@ mod tests {
     fn test_ltrim_ok() {
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
-        cr.process_bytes::<UsbCodec>(buf.as_ref()).unwrap();
+        cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let res = cr.ltrim(buf.len());
         assert_eq!(Ok(()), res);
     }
@@ -735,7 +606,7 @@ mod tests {
     fn test_ltrim_err() {
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
-        cr.process_bytes::<UsbCodec>(buf.as_ref()).unwrap();
+        cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let err = cr.ltrim(buf.len() + 1);
         assert_eq!(err, Err(Error::BufferLengthNotSufficient));
     }
@@ -744,7 +615,7 @@ mod tests {
     fn test_single_message_encoding_as_cobs_encoded_frames_for_ble() {
         let expected = &[0x03, 0xc2, 0xff, 0x00];
         let msg = Message::Configure { region: 255u8 };
-        let hex_frames = msg.as_frames::<Rn4870Codec>().unwrap();
+        let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = &hex_frames[0];
@@ -757,13 +628,13 @@ mod tests {
     #[test]
     fn test_message_reader_process_bytes_hex() {
         let msg = Message::Configure { region: 255u8 };
-        let hex_frames = msg.as_frames::<Rn4870Codec>().unwrap();
+        let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = hex_frames[0].clone();
         let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
-            .process_bytes::<Rn4870Codec>(&hex_frame[1..hex_frame.len() - 1])
+            .process_bytes::<codec::Rn4870Codec>(&hex_frame[1..hex_frame.len() - 1])
             .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
@@ -780,8 +651,8 @@ mod tests {
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
-        let frames = msg.as_frames::<Rn4870Codec>().unwrap();
-        assert_eq!(frames.len(), MAX_BLE_FRAMES_COUNT);
+        let frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
+        assert_eq!(frames.len(), codec::MAX_BLE_FRAMES_COUNT);
     }
 
     #[test]
@@ -791,7 +662,7 @@ mod tests {
         };
         let encoded = msg.encode().unwrap();
         let mut mr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
-        let messages = mr.process_bytes::<UsbCodec>(&encoded[..]).unwrap();
+        let messages = mr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
     }
