@@ -26,6 +26,7 @@ pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * super::MAX_MESSAGE_LENGTH;
 
 type UsbSerialFrameVec = Vec<u8, MAX_USB_FRAME_LENGTH>;
 type BleSerialFrameVec = Vec<u8, MAX_BLE_FRAME_LENGTH>;
+type Bgx13SerialFrameVec = Vec<u8, 32>;
 
 pub trait WireCodec {
     const MESSAGE_DELIMITER: Option<char>;
@@ -103,6 +104,31 @@ impl WireCodec for UsbCodec {
     }
 }
 
+pub struct Bgx13Codec {}
+
+// FIXME 32 and 9 - extract to CONSTS
+impl WireCodec for Bgx13Codec {
+    type Frames = Vec<Bgx13SerialFrameVec, 9>;
+    type IncomingFrame = Bgx13SerialFrameVec;
+    const MESSAGE_DELIMITER: Option<char> = None;
+
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+        let mut frames = Vec::<Bgx13SerialFrameVec, 9>::new();
+        for chunk in data.chunks_mut(32) {
+            frames
+                .push(Bgx13SerialFrameVec::from_slice(&chunk).unwrap())
+                .unwrap()
+        }
+        Ok(frames)
+    }
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+        let mut decoded = Bgx13SerialFrameVec::new();
+        decoded
+            .extend_from_slice(data)
+            .map_err(|_| Error::MalformedMessage)?;
+        Ok((decoded, data.len()))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
