@@ -128,6 +128,8 @@ pub enum Message {
     Noise { rssi_value: u8, rssi_wideband: u8 },
     /// Firmware upgrade will follow
     UpgradeFirmwareRequest,
+    /// Set current time
+    SetTimestamp { timestamp: u64 },
 }
 
 impl fmt::Debug for Message {
@@ -148,6 +150,7 @@ impl fmt::Debug for Message {
             Message::GetNoise => write!(f, "GetNoise"),
             Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
+            Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
         }
     }
 }
@@ -202,6 +205,9 @@ impl FromStr for Message {
                 Ok(Message::Configure { region })
             }
             "get_noise" => Ok(Message::GetNoise),
+            "ts" => Ok(Message::SetTimestamp {
+                timestamp: val.parse().unwrap(),
+            }),
             "uf" => Ok(Message::UpgradeFirmwareRequest),
             _ => Err(ParseMessageError::InvalidMessage),
         }
@@ -237,6 +243,9 @@ impl TryFrom<&[u8]> for Message {
                 rssi_wideband: buf[2],
             }),
             0xc8 => Ok(Message::UpgradeFirmwareRequest),
+            0xc9 => Ok(Message::SetTimestamp {
+                timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
+            }),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -268,6 +277,7 @@ impl Message {
             Message::GetNoise => 0,
             Message::Noise { .. } => 2,
             Message::UpgradeFirmwareRequest => 0,
+            Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
         };
 
         1 + variable_part_length
@@ -314,6 +324,11 @@ impl Message {
                     .unwrap();
             }
             Message::UpgradeFirmwareRequest => res.push(0xc8).unwrap(),
+            Message::SetTimestamp { timestamp } => {
+                res.push(0xc9).unwrap();
+                res.extend_from_slice(&u64::to_be_bytes(*timestamp))
+                    .unwrap()
+            }
         };
         res
     }
@@ -702,5 +717,16 @@ mod tests {
     fn test_message_parse_config() {
         let msg = "config@1".parse::<Message>().unwrap();
         assert_eq!(msg, Message::Configure { region: 1 });
+    }
+
+    #[test]
+    fn test_message_parse_ts() {
+        let msg = "ts@1629896485".parse::<Message>().unwrap();
+        assert_eq!(
+            msg,
+            Message::SetTimestamp {
+                timestamp: 1629896485u64
+            }
+        );
     }
 }
