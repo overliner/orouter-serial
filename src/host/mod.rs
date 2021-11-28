@@ -211,6 +211,7 @@ impl FromStr for Message {
             "ts" => Ok(Message::SetTimestamp {
                 timestamp: val.parse().unwrap(),
             }),
+            "get_adc" => Ok(Message::GetADC),
             "uf" => Ok(Message::UpgradeFirmwareRequest),
             _ => Err(ParseMessageError::InvalidMessage),
         }
@@ -249,6 +250,7 @@ impl TryFrom<&[u8]> for Message {
             0xc9 => Ok(Message::SetTimestamp {
                 timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
             }),
+            0xca => Ok(Message::GetADC),
             _ => Err(Error::MalformedMessage),
         }
     }
