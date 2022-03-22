@@ -131,7 +131,7 @@ pub enum Message {
     /// Set current time
     SetTimestamp { timestamp: u64 },
     /// Get ADC values
-    GetADC
+    GetRawIq,
 }
 
 impl fmt::Debug for Message {
@@ -153,7 +153,7 @@ impl fmt::Debug for Message {
             Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
-            Message::GetADC => write!(f, "GetADC")
+            Message::GetRawIq => write!(f, "GetRawIq")
         }
     }
 }
@@ -211,7 +211,7 @@ impl FromStr for Message {
             "ts" => Ok(Message::SetTimestamp {
                 timestamp: val.parse().unwrap(),
             }),
-            "get_adc" => Ok(Message::GetADC),
+            "get_rawiq" => Ok(Message::GetRawIq),
             "uf" => Ok(Message::UpgradeFirmwareRequest),
             _ => Err(ParseMessageError::InvalidMessage),
         }
@@ -250,7 +250,7 @@ impl TryFrom<&[u8]> for Message {
             0xc9 => Ok(Message::SetTimestamp {
                 timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
             }),
-            0xca => Ok(Message::GetADC),
+            0xca => Ok(Message::GetRawIq),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -283,7 +283,7 @@ impl Message {
             Message::Noise { .. } => 2,
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
-            Message::GetADC => 0
+            Message::GetRawIq => 0,
         };
 
         1 + variable_part_length
@@ -335,7 +335,7 @@ impl Message {
                 res.extend_from_slice(&u64::to_be_bytes(*timestamp))
                     .unwrap()
             }
-            Message::GetADC => res.push(0xca).unwrap()
+            Message::GetRawIq => res.push(0xca).unwrap(),
         };
         res
     }
