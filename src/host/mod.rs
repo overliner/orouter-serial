@@ -122,15 +122,11 @@ pub enum Message {
     },
     /// Node reporting some error state to host
     Status { code: StatusCode },
-    /// Request noise values from node
-    GetNoise,
-    /// Node reports noise values to host
-    Noise { rssi_value: u8, rssi_wideband: u8 },
     /// Firmware upgrade will follow
     UpgradeFirmwareRequest,
     /// Set current time
     SetTimestamp { timestamp: u64 },
-    /// Get ADC values
+    /// Get rawIq data
     GetRawIq,
 }
 
@@ -149,8 +145,6 @@ impl fmt::Debug for Message {
                 transmit_queue_size,
             } => write!(f, "Report {{ sn: {:?}, version_data: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
-            Message::GetNoise => write!(f, "GetNoise"),
-            Message::Noise { rssi_value, rssi_wideband } => write!(f, "Noise {{ rssi_value: {:?}, rssi_wideband: {:?} }}", rssi_value, rssi_wideband),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
             Message::GetRawIq => write!(f, "GetRawIq")
@@ -207,7 +201,6 @@ impl FromStr for Message {
                 let region = u8::from_str(val).unwrap();
                 Ok(Message::Configure { region })
             }
-            "get_noise" => Ok(Message::GetNoise),
             "ts" => Ok(Message::SetTimestamp {
                 timestamp: val.parse().unwrap(),
             }),
@@ -241,16 +234,11 @@ impl TryFrom<&[u8]> for Message {
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().unwrap(),
             }),
-            0xc6 => Ok(Message::GetNoise),
-            0xc7 => Ok(Message::Noise {
-                rssi_value: buf[1],
-                rssi_wideband: buf[2],
-            }),
-            0xc8 => Ok(Message::UpgradeFirmwareRequest),
-            0xc9 => Ok(Message::SetTimestamp {
+            0xc6 => Ok(Message::UpgradeFirmwareRequest),
+            0xc7 => Ok(Message::SetTimestamp {
                 timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
             }),
-            0xca => Ok(Message::GetRawIq),
+            0xc8 => Ok(Message::GetRawIq),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -279,8 +267,6 @@ impl Message {
             Message::ReportRequest => 0,
             Message::Report { .. } => 11,
             Message::Status { .. } => 1,
-            Message::GetNoise => 0,
-            Message::Noise { .. } => 2,
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
             Message::GetRawIq => 0,
@@ -321,21 +307,13 @@ impl Message {
             Message::Status { code } => {
                 res.extend_from_slice(&[0xc5, code.clone() as u8]).unwrap();
             }
-            Message::GetNoise => res.push(0xc6).unwrap(),
-            Message::Noise {
-                rssi_value,
-                rssi_wideband,
-            } => {
-                res.extend_from_slice(&[0xc7, *rssi_value, *rssi_wideband])
-                    .unwrap();
-            }
-            Message::UpgradeFirmwareRequest => res.push(0xc8).unwrap(),
+            Message::UpgradeFirmwareRequest => res.push(0xc6).unwrap(),
             Message::SetTimestamp { timestamp } => {
-                res.push(0xc9).unwrap();
+                res.push(0xc7).unwrap();
                 res.extend_from_slice(&u64::to_be_bytes(*timestamp))
                     .unwrap()
             }
-            Message::GetRawIq => res.push(0xca).unwrap(),
+            Message::GetRawIq => res.push(0xc8).unwrap(),
         };
         res
     }
