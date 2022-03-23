@@ -357,14 +357,15 @@ impl Message {
     }
 }
 
+// FIXME const param for buf size - node needs much less than host
 pub struct MessageReader<const QL: usize> {
-    buf: Vec<u8, 792>,
+    buf: Vec<u8, { 4116 + 260 }>,
 }
 
 impl<const QL: usize> MessageReader<QL> {
     pub fn new() -> Self {
         Self {
-            buf: Vec::<u8, 792>::new(),
+            buf: Vec::<u8, { 4116 + 260 }>::new(),
         }
     }
 
@@ -373,7 +374,7 @@ impl<const QL: usize> MessageReader<QL> {
         bytes: &[u8],
     ) -> Result<Vec<Message, QL>, Error> {
         let (bytes, decoded_len) = C::decode_frame(bytes)?;
-        if self.buf.len() + decoded_len > 792 {
+        if self.buf.len() + decoded_len > (4116 + 260) {
             return Err(Error::BufferFull);
         }
         self.buf.extend(bytes);
@@ -671,7 +672,7 @@ mod tests {
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
         let frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
-        assert_eq!(frames.len(), codec::MAX_BLE_FRAMES_COUNT);
+        assert_eq!(frames.len(), 5);
     }
 
     #[test]
