@@ -20,20 +20,21 @@ pub mod codec;
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
 
 /// Computed as
 ///
 /// ```ignore - not a test
-/// 1+255 => longest message raw bytes length (SendData.len() when data vec is full)
+/// 1+4096 => longest message raw bytes length (RawIq.len() when data vec is full)
 /// +
-/// 1+ceil(256/254) = 4 = COBS worst overhead
+/// 1+ceil(4097/254) = 10 = COBS worst overhead
 /// +
 /// 1 = COBS sentinel
 /// ---
-/// 260
+/// 4116
 /// ```
 ///
-pub const MAX_MESSAGE_LENGTH: usize = 260;
+pub const MAX_MESSAGE_LENGTH: usize = 4116;
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
@@ -133,6 +134,10 @@ pub enum Message {
     SetTimestamp { timestamp: u64 },
     /// Get rawIq data
     GetRawIq,
+    /// Node returns raw IQ data to host
+    RawIq {
+        data: Vec<u8, { RAWIQ_DATA_LENGTH }>,
+    },
 }
 
 #[cfg(feature = "std")]
@@ -153,7 +158,8 @@ impl fmt::Debug for Message {
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
-            Message::GetRawIq => write!(f, "GetRawIq")
+            Message::GetRawIq => write!(f, "GetRawIq"),
+            Message::RawIq { data } => write!(f, "RawIq {{ data: {:02x?} }}", data)
         }
     }
 }
@@ -276,6 +282,7 @@ impl Message {
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
             Message::GetRawIq => 0,
+            Message::RawIq { data } => data.len(),
         };
 
         1 + variable_part_length
@@ -320,6 +327,10 @@ impl Message {
                     .unwrap()
             }
             Message::GetRawIq => res.push(0xc8).unwrap(),
+            Message::RawIq { data } => {
+                res.push(0xc9).unwrap();
+                res.extend_from_slice(&data).unwrap();
+            }
         };
         res
     }
