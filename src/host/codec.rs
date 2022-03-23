@@ -41,7 +41,7 @@ pub struct Rn4870Codec {}
 
 impl WireCodec for Rn4870Codec {
     const MESSAGE_DELIMITER: Option<char> = Some('%');
-    type Frames = Vec<BleSerialFrameVec, 5>;
+    type Frames = Vec<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>;
     type IncomingFrame = BleSerialFrameVec;
 
     fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
@@ -82,7 +82,7 @@ impl WireCodec for Rn4870Codec {
 pub struct UsbCodec {}
 
 impl WireCodec for UsbCodec {
-    type Frames = Vec<UsbSerialFrameVec, 2>;
+    type Frames = Vec<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>;
     type IncomingFrame = UsbSerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
