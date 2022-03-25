@@ -454,6 +454,10 @@ impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
     pub fn reset(&mut self) {
         self.buf.clear();
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
 }
 
 impl<const BUFL: usize, const QL: usize> Default for MessageReader<BUFL, QL> {
