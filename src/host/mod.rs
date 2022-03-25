@@ -34,11 +34,18 @@ pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
 /// <result>
 /// ```
 ///
-const fn calculate_max_message_length(max_message_size: usize) -> usize {
-    // (x+d-1) / d
-    1 + max_message_size + 1 + (max_message_size + 254 - 1) / 254 + 1
+pub const fn calculate_cobs_overhead(unecoded_message_size: usize) -> usize {
+    const COBS_OVERHEAD_MAXIMUM: usize = 254;
+    // message type
+    1 +
+        // message size
+        unecoded_message_size +
+        // constant ceil(x / y) can be written as (x+y-1) / y
+        1 + (unecoded_message_size + COBS_OVERHEAD_MAXIMUM - 1) / COBS_OVERHEAD_MAXIMUM +
+        // COBS sentinel
+        1
 }
-pub const MAX_MESSAGE_LENGTH: usize = calculate_max_message_length(RAWIQ_DATA_LENGTH);
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH);
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
@@ -377,7 +384,7 @@ impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
         bytes: &[u8],
     ) -> Result<Vec<Message, QL>, Error> {
         let (bytes, decoded_len) = C::decode_frame(bytes)?;
-        if self.buf.len() + decoded_len > (4116 + 260) {
+        if self.buf.len() + decoded_len > BUFL {
             return Err(Error::BufferFull);
         }
         self.buf.extend(bytes);
@@ -739,14 +746,14 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_max_message_length_255() {
-        let max_message_lenght = calculate_max_message_length(255);
-        assert_eq!(max_message_lenght, 260);
+    fn test_calculate_cobs_overhead_for_255() {
+        let max_message_length = calculate_cobs_overhead(255);
+        assert_eq!(max_message_length, 260);
     }
 
     #[test]
-    fn test_calculate_max_message_length_4096() {
-        let max_message_lenght = calculate_max_message_length(4096);
-        assert_eq!(max_message_lenght, 4116);
+    fn test_calculate_cobs_overhead_for_4096() {
+        let max_message_length = calculate_cobs_overhead(4096);
+        assert_eq!(max_message_length, 4116);
     }
 }
