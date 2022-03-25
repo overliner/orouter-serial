@@ -25,16 +25,20 @@ pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
 /// Computed as
 ///
 /// ```ignore - not a test
-/// 1+4096 => longest message raw bytes length (RawIq.len() when data vec is full)
+/// 1+longest_message_length => (now RawIq lenght with max data)
 /// +
-/// 1+ceil(4097/254) = 10 = COBS worst overhead
+/// 1+ceil(<previous result>/254) = COBS worst overhead
 /// +
-/// 1 = COBS sentinel
+/// 1 = COBS sentinel (0x00 in our case)
 /// ---
-/// 4116
+/// <result>
 /// ```
 ///
-pub const MAX_MESSAGE_LENGTH: usize = 4116;
+const fn calculate_max_message_length(max_message_size: usize) -> usize {
+    // (x+d-1) / d
+    1 + max_message_size + 1 + (max_message_size + 254 - 1) / 254 + 1
+}
+pub const MAX_MESSAGE_LENGTH: usize = calculate_max_message_length(RAWIQ_DATA_LENGTH);
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
@@ -733,5 +737,17 @@ mod tests {
                 timestamp: 1629896485u64
             }
         );
+    }
+
+    #[test]
+    fn test_calculate_max_message_length_255() {
+        let max_message_lenght = calculate_max_message_length(255);
+        assert_eq!(max_message_lenght, 260);
+    }
+
+    #[test]
+    fn test_calculate_max_message_length_4096() {
+        let max_message_lenght = calculate_max_message_length(4096);
+        assert_eq!(max_message_lenght, 4116);
     }
 }
