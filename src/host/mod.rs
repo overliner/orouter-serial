@@ -361,15 +361,14 @@ impl Message {
     }
 }
 
-// FIXME const param for buf size - node needs much less than host
-pub struct MessageReader<const QL: usize> {
-    buf: Vec<u8, { 4116 + 260 }>,
+pub struct MessageReader<const BUFL: usize, const QL: usize> {
+    buf: Vec<u8, BUFL>,
 }
 
-impl<const QL: usize> MessageReader<QL> {
+impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
     pub fn new() -> Self {
         Self {
-            buf: Vec::<u8, { 4116 + 260 }>::new(),
+            buf: Vec::<u8, BUFL>::new(),
         }
     }
 
@@ -447,7 +446,7 @@ impl<const QL: usize> MessageReader<QL> {
     }
 }
 
-impl<const QL: usize> Default for MessageReader<QL> {
+impl<const BUFL: usize, const QL: usize> Default for MessageReader<BUFL, QL> {
     fn default() -> Self {
         Self::new()
     }
@@ -491,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_process_with_no_bytes_is_empty() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(
             cr.process_bytes::<codec::UsbCodec>(&[][..]).unwrap().len(),
             0
@@ -500,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_process_with_no_full_message_is_empty() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(
             cr.process_bytes::<codec::UsbCodec>(&[0x01, 0x02][..])
                 .unwrap()
@@ -512,7 +511,7 @@ mod tests {
     #[test]
     fn test_single_message_decoding() {
         let encoded = &[0x03, 0xc2, 0xff, 0x00];
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
 
         let expected_msg_0 = Message::Configure { region: 255u8 };
@@ -538,7 +537,7 @@ mod tests {
             start = start + written + 1;
         }
 
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
             .process_bytes::<codec::UsbCodec>(&encoded_buffer[..])
             .unwrap();
@@ -581,7 +580,7 @@ mod tests {
             );
             start = start + written + 1;
         }
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let err = cr.process_bytes::<codec::UsbCodec>(&encoded_buffer[..]);
         assert_eq!(err, Err(Error::MessageQueueFull));
     }
@@ -619,7 +618,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_ok() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let res = cr.ltrim(buf.len());
@@ -628,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_err() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let err = cr.ltrim(buf.len() + 1);
@@ -656,7 +655,7 @@ mod tests {
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = hex_frames[0].clone();
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
             .process_bytes::<codec::Rn4870Codec>(&hex_frame[1..hex_frame.len() - 1])
             .unwrap();
@@ -685,7 +684,7 @@ mod tests {
             code: StatusCode::ErrBusyLoraTransmitting,
         };
         let encoded = msg.encode().unwrap();
-        let mut mr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut mr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = mr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
