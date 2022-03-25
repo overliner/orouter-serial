@@ -262,6 +262,9 @@ impl TryFrom<&[u8]> for Message {
                 timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
             }),
             0xc8 => Ok(Message::GetRawIq),
+            0xc9 => Ok(Message::RawIq {
+                data: Vec::<u8, RAWIQ_DATA_LENGTH>::from_slice(&buf[1..]).unwrap(),
+            }),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -749,6 +752,12 @@ mod tests {
     fn test_calculate_cobs_overhead_for_255() {
         let max_message_length = calculate_cobs_overhead(255);
         assert_eq!(max_message_length, 260);
+    }
+
+    #[test]
+    fn test_calculate_cobs_overhead_for_2048() {
+        let max_message_length = calculate_cobs_overhead(2048);
+        assert_eq!(max_message_length, 2060);
     }
 
     #[test]
