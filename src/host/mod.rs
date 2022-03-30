@@ -153,11 +153,11 @@ impl fmt::Debug for Message {
     }
 }
 
-#[derive(Debug)]
+#[derive(Format)]
 pub enum ParseMessageError {
     MissingSeparator,
     InvalidMessage,
-    InvalidHex(base16::DecodeError),
+    InvalidHex(#[defmt(Debug2Format)] base16::DecodeError),
     InvalidPayloadLength,
     PayloadTooLong,
 }

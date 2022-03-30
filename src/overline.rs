@@ -5,7 +5,7 @@
 //! implementation of overline message retransmission rules
 use core::cmp::{Ord, Ordering};
 
-use defmt::Format;
+use defmt::{unwrap, Format};
 use heapless::{HistoryBuffer, Vec};
 use rand::prelude::*;
 
@@ -15,7 +15,7 @@ pub const MESSAGE_MAX_DATA_LENGTH: usize = MAX_LORA_PAYLOAD_LENGTH - MESSAGE_HAS
 pub type MessageDataPart = Vec<u8, MESSAGE_MAX_DATA_LENGTH>; // FIXME better naming
 pub type MessageHash = Vec<u8, MESSAGE_HASH_LENGTH>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Format, PartialEq)]
 pub enum Error {
     InvalidMessage,
     ShortTermQueueFull,
@@ -25,7 +25,7 @@ pub enum Error {
 }
 
 // FIXME define these according to the design document
-#[derive(Debug, PartialEq)]
+#[derive(Format, PartialEq)]
 pub enum MessageType {
     Challenge,
     Proof,
@@ -36,7 +36,7 @@ pub enum MessageType {
 
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Format, Clone, PartialEq)]
 pub struct Message(Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
@@ -115,7 +115,7 @@ pub enum StoreRecvOutcome {
 }
 
 /// Wraps message parts (hash and data) for storing them ordered in the short term queue
-#[derive(Eq, Debug)]
+#[derive(Eq, Format)]
 pub struct ShortTermQueueItem {
     /// determines in how many ticks the item expires for the short term queue
     when: u16,
@@ -231,15 +231,11 @@ impl<'a, R: RngCore> MessageStore<'a, R> {
             // TODO if the short_term_queue is sorted, then we could break early here
             if item.when == self.tick_count {
                 // TODO remove from queue
-                result
-                    .push(
-                        Message::try_from_hash_data(
-                            item.message_hash.clone(),
-                            item.message_data_part.clone(),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
+                let msg = unwrap!(Message::try_from_hash_data(
+                    item.message_hash.clone(),
+                    item.message_data_part.clone(),
+                ));
+                unwrap!(result.push(msg));
                 remove_indices.push(idx).unwrap();
             }
             idx += 1;
@@ -250,7 +246,7 @@ impl<'a, R: RngCore> MessageStore<'a, R> {
         }
 
         for msg in &result {
-            let hash = msg.hash().unwrap(); // FIXME map to appropriate error
+            let hash = unwrap!(msg.hash()); // FIXME map to appropriate error
             self.long_term_queue.write(hash);
         }
 
@@ -351,7 +347,7 @@ mod tests {
 
         use rand::Error as RandError;
 
-        #[derive(Debug)]
+        #[derive(Format)]
         struct TestingRng(u8, Vec<u64, 64>);
 
         impl RngCore for TestingRng {
