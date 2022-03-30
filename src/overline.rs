@@ -5,6 +5,7 @@
 //! implementation of overline message retransmission rules
 use core::cmp::{Ord, Ordering};
 
+use defmt::Format;
 use heapless::{HistoryBuffer, Vec};
 use rand::prelude::*;
 
@@ -103,7 +104,7 @@ impl Message {
 }
 
 /// Describes outcome of attempt to [`MessageStore::recv`]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Format, PartialEq)]
 pub enum StoreRecvOutcome {
     /// hash was not in the short term queue, scheduled for retransmission
     NotSeenScheduled(u16),

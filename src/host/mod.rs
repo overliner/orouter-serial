@@ -12,6 +12,7 @@
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::str::FromStr;
+use defmt::Format;
 use heapless::Vec;
 
 pub mod codec;
@@ -35,13 +36,13 @@ pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 pub const MAX_MESSAGE_LENGTH: usize = 260;
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Format, PartialEq)]
 pub enum Error {
     BufferFull,
     BufferLengthNotSufficient,
     MalformedMessage,
     MessageQueueFull,
-    MalformedHex(base16::DecodeError),
+    MalformedHex(#[defmt(Debug2Format)] base16::DecodeError),
 }
 
 impl From<base16::DecodeError> for Error {
@@ -50,7 +51,7 @@ impl From<base16::DecodeError> for Error {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Format, Debug, PartialEq)]
 #[repr(u8)]
 pub enum StatusCode {
     FrameReceived = 1,
@@ -96,7 +97,7 @@ impl fmt::Display for StatusCode {
 /// Possible commands send over host protocol
 ///
 /// This enum contains both messages send exlusively to node or exclusively to host
-#[derive(PartialEq)]
+#[derive(Format, PartialEq)]
 pub enum Message {
     /// Host sending data to node instructing it to broadcast it to the wireless network
     SendData {
