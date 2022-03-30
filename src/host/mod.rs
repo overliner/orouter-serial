@@ -10,9 +10,9 @@
 //! method is crucial for communication to work as it makes sure the messages is COBS encoded
 //! AND split to maximum size frames suitable for the node's serial interface
 use core::convert::{TryFrom, TryInto};
+#[cfg(feature = "std")]
 use core::fmt;
 use core::str::FromStr;
-use defmt::Format;
 use heapless::Vec;
 
 pub mod codec;
@@ -36,13 +36,16 @@ pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 pub const MAX_MESSAGE_LENGTH: usize = 260;
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
-#[derive(Debug, Format, PartialEq)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum Error {
     BufferFull,
     BufferLengthNotSufficient,
     MalformedMessage,
     MessageQueueFull,
-    MalformedHex(#[defmt(Debug2Format)] base16::DecodeError),
+    MalformedHex(base16::DecodeError),
+    CannotAppendCommand,
+    CannotSplitFrames,
 }
 
 impl From<base16::DecodeError> for Error {
@@ -51,7 +54,8 @@ impl From<base16::DecodeError> for Error {
     }
 }
 
-#[derive(Clone, Format, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 #[repr(u8)]
 pub enum StatusCode {
     FrameReceived = 1,
@@ -75,7 +79,7 @@ impl TryFrom<u8> for StatusCode {
         }
     }
 }
-
+#[cfg(feature = "std")]
 impl fmt::Display for StatusCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -97,7 +101,7 @@ impl fmt::Display for StatusCode {
 /// Possible commands send over host protocol
 ///
 /// This enum contains both messages send exlusively to node or exclusively to host
-#[derive(Format, PartialEq)]
+#[derive(PartialEq)]
 pub enum Message {
     /// Host sending data to node instructing it to broadcast it to the wireless network
     SendData {
@@ -131,6 +135,7 @@ pub enum Message {
     GetRawIq,
 }
 
+#[cfg(feature = "std")]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -153,11 +158,11 @@ impl fmt::Debug for Message {
     }
 }
 
-#[derive(Format)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum ParseMessageError {
     MissingSeparator,
     InvalidMessage,
-    InvalidHex(#[defmt(Debug2Format)] base16::DecodeError),
+    InvalidHex(base16::DecodeError),
     InvalidPayloadLength,
     PayloadTooLong,
 }
@@ -335,8 +340,8 @@ impl Message {
     /// Splits COBS encoded self to frames for sending.
     /// Frames can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_frames<C: codec::WireCodec>(&self) -> Result<C::Frames, Error> {
-        let mut result = self.encode().unwrap();
-        let frames = C::get_frames(&mut result[..])?;
+        let mut result = self.encode()?;
+        let frames = C::get_frames(&mut result[..]).map_err(|_| Error::CannotSplitFrames)?;
         Ok(frames)
     }
 }
@@ -375,7 +380,9 @@ impl<const QL: usize> MessageReader<QL> {
                         self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
                         if output.len() < QL {
-                            output.push(command).unwrap();
+                            output
+                                .push(command)
+                                .map_err(|_| Error::CannotAppendCommand)?;
                         } else {
                             return Err(Error::MessageQueueFull);
                         }

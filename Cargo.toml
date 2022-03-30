@@ -8,12 +8,14 @@ license = "MIT"
 [dependencies]
 base16 = { version = "0.2", default-features = false }
 cobs = { version = "0.1", default-features = false }
-defmt = "0.3.1"
-heapless = { version = "0.7", features = ["defmt-impl"] }
+defmt = { version = "0.3.1", optional = true }
+heapless = { version = "0.7" }
 rand = { version = "0.7", default-features = false, features = ["small_rng"]}
 
 [dev-dependencies]
 rand = { version = "0.7" }
 
 [features]
-debug = []
+default = ["std"]
+defmt-impl = ["defmt", "heapless/defmt-impl"]
+std = []
