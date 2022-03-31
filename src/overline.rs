@@ -141,30 +141,34 @@ impl PartialEq for ShortTermQueueItem {
 }
 
 #[cfg(any(feature = "debug", test))]
-const SHORT_TERM_QUEUE_LENGTH: usize = 16;
+pub const SHORT_TERM_QUEUE_LENGTH: usize = 16;
 #[cfg(not(any(feature = "debug", test)))]
-const SHORT_TERM_QUEUE_LENGTH: usize = 64;
+pub const SHORT_TERM_QUEUE_LENGTH: usize = 64;
 
 #[cfg(any(feature = "debug", test))]
-const LONG_TERM_QUEUE_LENGTH: usize = 64;
+pub const LONG_TERM_QUEUE_LENGTH: usize = 64;
 #[cfg(not(any(feature = "debug", test)))]
-const LONG_TERM_QUEUE_LENGTH: usize = 512;
+pub const LONG_TERM_QUEUE_LENGTH: usize = 512;
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
 /// messages seen by the node
-pub struct MessageStore<R: RngCore> {
+pub struct MessageStore<'a, R: RngCore> {
     tick_count: u16,
-    short_term_queue: Vec<ShortTermQueueItem, SHORT_TERM_QUEUE_LENGTH>, // TODO remove option?
-    long_term_queue: HistoryBuffer<MessageHash, LONG_TERM_QUEUE_LENGTH>,
+    short_term_queue: &'a mut Vec<ShortTermQueueItem, SHORT_TERM_QUEUE_LENGTH>,
+    long_term_queue: &'a mut HistoryBuffer<MessageHash, LONG_TERM_QUEUE_LENGTH>,
     rng: R,
 }
 
-impl<R: RngCore> MessageStore<R> {
-    pub fn new(rng: R) -> Self {
+impl<'a, R: RngCore> MessageStore<'a, R> {
+    pub fn new(
+        rng: R,
+        short_term_queue: &'a mut Vec<ShortTermQueueItem, SHORT_TERM_QUEUE_LENGTH>,
+        long_term_queue: &'a mut HistoryBuffer<MessageHash, LONG_TERM_QUEUE_LENGTH>,
+    ) -> Self {
         MessageStore {
             tick_count: Default::default(),
-            short_term_queue: Default::default(),
-            long_term_queue: HistoryBuffer::new(),
+            short_term_queue,
+            long_term_queue,
             rng,
         }
     }
@@ -175,7 +179,7 @@ impl<R: RngCore> MessageStore<R> {
         // if we have seen this, and is in short term queue, immediately remove it from short term queue and store in long term queue
         let mut idx: usize = 0;
         let mut remove_idx = None;
-        for item in &self.short_term_queue {
+        for item in self.short_term_queue.iter() {
             if item.message_hash == message_hash {
                 remove_idx = Some(idx);
                 break;
@@ -222,7 +226,7 @@ impl<R: RngCore> MessageStore<R> {
         let mut remove_indices = Vec::<usize, 3>::new();
 
         // FIXME only gather indices and swap_remove them one by on in other cycle
-        for item in &self.short_term_queue {
+        for item in self.short_term_queue.iter() {
             // TODO if the short_term_queue is sorted, then we could break early here
             if item.when == self.tick_count {
                 // TODO remove from queue
@@ -390,7 +394,9 @@ mod tests {
         #[test]
         fn test_store_receive_not_seen() {
             let rng = TestingRng(0, Vec::from_slice(&[2, 1]).unwrap());
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -407,7 +413,9 @@ mod tests {
         #[test]
         fn test_store_receive_seen() {
             let rng = SmallRng::seed_from_u64(0x1111_2222_3333_4444);
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -428,7 +436,9 @@ mod tests {
         #[test]
         fn test_store_receive_seen_not_clone() {
             let rng = TestingRng(0, Vec::from_slice(&[1, 1]).unwrap());
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -457,7 +467,9 @@ mod tests {
         #[test]
         fn test_schedue_tick_simple() {
             let rng = TestingRng(0, Vec::from_slice(&[2, 1]).unwrap());
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -486,7 +498,9 @@ mod tests {
             // when generated for message is 4 ticks, so it should be scheduled for 1 in the next
             // epoch
             let rng = TestingRng(0, Vec::from_slice(&[6, 1, 1, 1]).unwrap());
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
             let m = Message(
                 Vec::from_slice(&[
                     0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -524,7 +538,9 @@ mod tests {
                 ])
                 .unwrap(),
             );
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
 
             // let's receive 16 messages - full length of the queue
             for n in 0..(SHORT_TERM_QUEUE_LENGTH) {
@@ -583,7 +599,9 @@ mod tests {
                 ])
                 .unwrap(),
             );
-            let mut store = MessageStore::new(rng);
+            let mut short_q = Vec::new();
+            let mut long_q = HistoryBuffer::new();
+            let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
 
             // let's receive 64 messages - full length of the long term queue
             for n in 0..(LONG_TERM_QUEUE_LENGTH) {
