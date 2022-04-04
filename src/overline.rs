@@ -14,7 +14,8 @@ pub const MESSAGE_MAX_DATA_LENGTH: usize = MAX_LORA_PAYLOAD_LENGTH - MESSAGE_HAS
 pub type MessageDataPart = Vec<u8, MESSAGE_MAX_DATA_LENGTH>; // FIXME better naming
 pub type MessageHash = Vec<u8, MESSAGE_HASH_LENGTH>;
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum Error {
     InvalidMessage,
     ShortTermQueueFull,
@@ -24,7 +25,8 @@ pub enum Error {
 }
 
 // FIXME define these according to the design document
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum MessageType {
     Challenge,
     Proof,
@@ -35,7 +37,8 @@ pub enum MessageType {
 
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub struct Message(Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
@@ -103,7 +106,8 @@ impl Message {
 }
 
 /// Describes outcome of attempt to [`MessageStore::recv`]
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum StoreRecvOutcome {
     /// hash was not in the short term queue, scheduled for retransmission
     NotSeenScheduled(u16),
@@ -114,7 +118,8 @@ pub enum StoreRecvOutcome {
 }
 
 /// Wraps message parts (hash and data) for storing them ordered in the short term queue
-#[derive(Eq, Debug)]
+#[derive(Eq)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub struct ShortTermQueueItem {
     /// determines in how many ticks the item expires for the short term queue
     when: u16,
@@ -140,14 +145,7 @@ impl PartialEq for ShortTermQueueItem {
     }
 }
 
-#[cfg(any(feature = "debug", test))]
-pub const SHORT_TERM_QUEUE_LENGTH: usize = 16;
-#[cfg(not(any(feature = "debug", test)))]
 pub const SHORT_TERM_QUEUE_LENGTH: usize = 64;
-
-#[cfg(any(feature = "debug", test))]
-pub const LONG_TERM_QUEUE_LENGTH: usize = 64;
-#[cfg(not(any(feature = "debug", test)))]
 pub const LONG_TERM_QUEUE_LENGTH: usize = 512;
 
 /// Store is responsible for applying rules for storing and possible retransmission of overline
@@ -230,16 +228,17 @@ impl<'a, R: RngCore> MessageStore<'a, R> {
             // TODO if the short_term_queue is sorted, then we could break early here
             if item.when == self.tick_count {
                 // TODO remove from queue
-                result
-                    .push(
-                        Message::try_from_hash_data(
-                            item.message_hash.clone(),
-                            item.message_data_part.clone(),
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap();
-                remove_indices.push(idx).unwrap();
+                let msg = match Message::try_from_hash_data(
+                    item.message_hash.clone(),
+                    item.message_data_part.clone(),
+                ) {
+                    Ok(msg) => msg,
+                    Err(_) => return Err(()),
+                };
+                match (result.push(msg), remove_indices.push(idx)) {
+                    (Ok(_), Ok(_)) => {}
+                    _ => return Err(()),
+                }
             }
             idx += 1;
         }
@@ -249,7 +248,10 @@ impl<'a, R: RngCore> MessageStore<'a, R> {
         }
 
         for msg in &result {
-            let hash = msg.hash().unwrap(); // FIXME map to appropriate error
+            let hash = match msg.hash() {
+                Ok(hash) => hash,
+                Err(_) => return Err(()),
+            };
             self.long_term_queue.write(hash);
         }
 
@@ -350,7 +352,7 @@ mod tests {
 
         use rand::Error as RandError;
 
-        #[derive(Debug)]
+        #[cfg_attr(feature = "std", derive(Debug))]
         struct TestingRng(u8, Vec<u64, 64>);
 
         impl RngCore for TestingRng {
@@ -603,12 +605,12 @@ mod tests {
             let mut long_q = HistoryBuffer::new();
             let mut store = MessageStore::new(rng, &mut short_q, &mut long_q);
 
-            // let's receive 64 messages - full length of the long term queue
+            // let's receive 512 messages - full length of the long term queue
             for n in 0..(LONG_TERM_QUEUE_LENGTH) {
-                let first_byte = (n + 100) as u8;
+                let bytes = (n as u16).to_be_bytes();
                 let m = Message(
                     Vec::from_slice(&[
-                        0xaa, first_byte, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                        0xaa, bytes[0], bytes[1], 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
                         0xaa, 0xaa, 0xaa, 0xbb, 0xcc, 0x15, 0xff,
                     ])
                     .unwrap(),
