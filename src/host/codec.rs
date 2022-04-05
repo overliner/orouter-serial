@@ -3,7 +3,7 @@ use heapless::Vec;
 use super::Error;
 
 const MAX_BLE_FRAME_LENGTH: usize = 128; // BLE can only process this
-const MAX_USB_FRAME_LENGTH: usize = 256; // USB can only process this
+pub const MAX_USB_FRAME_LENGTH: usize = 256; // USB can only process this
 ///
 /// cannot run calculation in const declaration
 /// calculation is min(1, MAX_MESSAGE_LENGTH_HEX_ENCODED % MAX_SERIAL_FRAME_LENGTH);

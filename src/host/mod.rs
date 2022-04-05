@@ -20,20 +20,32 @@ pub mod codec;
 pub const BLE_SERIAL_DELIMITER: char = '%';
 const COBS_SENTINEL: u8 = 0x00;
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 1024; // 2048 u16s
 
 /// Computed as
 ///
 /// ```ignore - not a test
-/// 1+255 => longest message raw bytes length (SendData.len() when data vec is full)
+/// 1+longest_message_length => (now RawIq lenght with max data)
 /// +
-/// 1+ceil(256/254) = 4 = COBS worst overhead
+/// 1+ceil(<previous result>/254) = COBS worst overhead
 /// +
-/// 1 = COBS sentinel
+/// 1 = COBS sentinel (0x00 in our case)
 /// ---
-/// 260
+/// <result>
 /// ```
 ///
-pub const MAX_MESSAGE_LENGTH: usize = 260;
+pub const fn calculate_cobs_overhead(unecoded_message_size: usize) -> usize {
+    const COBS_OVERHEAD_MAXIMUM: usize = 254;
+    // message type
+    1 +
+        // message size
+        unecoded_message_size +
+        // constant ceil(x / y) can be written as (x+y-1) / y
+        1 + (unecoded_message_size + COBS_OVERHEAD_MAXIMUM - 1) / COBS_OVERHEAD_MAXIMUM +
+        // COBS sentinel
+        1
+}
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH);
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
@@ -133,6 +145,10 @@ pub enum Message {
     SetTimestamp { timestamp: u64 },
     /// Get rawIq data
     GetRawIq,
+    /// Node returns raw IQ data to host
+    RawIq {
+        data: Vec<u8, { RAWIQ_DATA_LENGTH }>,
+    },
 }
 
 #[cfg(feature = "std")]
@@ -153,7 +169,8 @@ impl fmt::Debug for Message {
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
-            Message::GetRawIq => write!(f, "GetRawIq")
+            Message::GetRawIq => write!(f, "GetRawIq"),
+            Message::RawIq { data } => write!(f, "RawIq {{ data: {:02x?} }}", data)
         }
     }
 }
@@ -245,6 +262,9 @@ impl TryFrom<&[u8]> for Message {
                 timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
             }),
             0xc8 => Ok(Message::GetRawIq),
+            0xc9 => Ok(Message::RawIq {
+                data: Vec::<u8, RAWIQ_DATA_LENGTH>::from_slice(&buf[1..]).unwrap(),
+            }),
             _ => Err(Error::MalformedMessage),
         }
     }
@@ -276,6 +296,7 @@ impl Message {
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
             Message::GetRawIq => 0,
+            Message::RawIq { data } => data.len(),
         };
 
         1 + variable_part_length
@@ -320,6 +341,10 @@ impl Message {
                     .unwrap()
             }
             Message::GetRawIq => res.push(0xc8).unwrap(),
+            Message::RawIq { data } => {
+                res.push(0xc9).unwrap();
+                res.extend_from_slice(&data).unwrap();
+            }
         };
         res
     }
@@ -346,14 +371,14 @@ impl Message {
     }
 }
 
-pub struct MessageReader<const QL: usize> {
-    buf: Vec<u8, 792>,
+pub struct MessageReader<const BUFL: usize, const QL: usize> {
+    buf: Vec<u8, BUFL>,
 }
 
-impl<const QL: usize> MessageReader<QL> {
+impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
     pub fn new() -> Self {
         Self {
-            buf: Vec::<u8, 792>::new(),
+            buf: Vec::<u8, BUFL>::new(),
         }
     }
 
@@ -362,7 +387,7 @@ impl<const QL: usize> MessageReader<QL> {
         bytes: &[u8],
     ) -> Result<Vec<Message, QL>, Error> {
         let (bytes, decoded_len) = C::decode_frame(bytes)?;
-        if self.buf.len() + decoded_len > 792 {
+        if self.buf.len() + decoded_len > BUFL {
             return Err(Error::BufferFull);
         }
         self.buf.extend(bytes);
@@ -429,9 +454,13 @@ impl<const QL: usize> MessageReader<QL> {
     pub fn reset(&mut self) {
         self.buf.clear();
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
 }
 
-impl<const QL: usize> Default for MessageReader<QL> {
+impl<const BUFL: usize, const QL: usize> Default for MessageReader<BUFL, QL> {
     fn default() -> Self {
         Self::new()
     }
@@ -475,7 +504,7 @@ mod tests {
 
     #[test]
     fn test_process_with_no_bytes_is_empty() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(
             cr.process_bytes::<codec::UsbCodec>(&[][..]).unwrap().len(),
             0
@@ -484,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_process_with_no_full_message_is_empty() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         assert_eq!(
             cr.process_bytes::<codec::UsbCodec>(&[0x01, 0x02][..])
                 .unwrap()
@@ -496,7 +525,7 @@ mod tests {
     #[test]
     fn test_single_message_decoding() {
         let encoded = &[0x03, 0xc2, 0xff, 0x00];
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
 
         let expected_msg_0 = Message::Configure { region: 255u8 };
@@ -522,7 +551,7 @@ mod tests {
             start = start + written + 1;
         }
 
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
             .process_bytes::<codec::UsbCodec>(&encoded_buffer[..])
             .unwrap();
@@ -565,7 +594,7 @@ mod tests {
             );
             start = start + written + 1;
         }
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let err = cr.process_bytes::<codec::UsbCodec>(&encoded_buffer[..]);
         assert_eq!(err, Err(Error::MessageQueueFull));
     }
@@ -603,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_ok() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let res = cr.ltrim(buf.len());
@@ -612,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_ltrim_err() {
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let buf = b"%DISCONNECT%";
         cr.process_bytes::<codec::UsbCodec>(buf.as_ref()).unwrap();
         let err = cr.ltrim(buf.len() + 1);
@@ -640,7 +669,7 @@ mod tests {
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = hex_frames[0].clone();
-        let mut cr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr
             .process_bytes::<codec::Rn4870Codec>(&hex_frame[1..hex_frame.len() - 1])
             .unwrap();
@@ -660,7 +689,7 @@ mod tests {
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
         let frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
-        assert_eq!(frames.len(), codec::MAX_BLE_FRAMES_COUNT);
+        assert_eq!(frames.len(), 5);
     }
 
     #[test]
@@ -669,7 +698,7 @@ mod tests {
             code: StatusCode::ErrBusyLoraTransmitting,
         };
         let encoded = msg.encode().unwrap();
-        let mut mr = MessageReader::<DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut mr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = mr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
@@ -721,5 +750,23 @@ mod tests {
                 timestamp: 1629896485u64
             }
         );
+    }
+
+    #[test]
+    fn test_calculate_cobs_overhead_for_255() {
+        let max_message_length = calculate_cobs_overhead(255);
+        assert_eq!(max_message_length, 260);
+    }
+
+    #[test]
+    fn test_calculate_cobs_overhead_for_2048() {
+        let max_message_length = calculate_cobs_overhead(2048);
+        assert_eq!(max_message_length, 2060);
+    }
+
+    #[test]
+    fn test_calculate_cobs_overhead_for_4096() {
+        let max_message_length = calculate_cobs_overhead(4096);
+        assert_eq!(max_message_length, 4116);
     }
 }
