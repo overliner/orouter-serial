@@ -31,7 +31,7 @@ type Bgx13SerialFrameVec = Vec<u8, 32>;
 pub trait WireCodec {
     const MESSAGE_DELIMITER: Option<char>;
     type Frames;
-    type IncomingFrame: IntoIterator<Item = u8>;
+    type IncomingFrame: IntoIterator<Item = u8> + AsRef<[u8]>;
 
     fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error>;
     fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error>;
