@@ -362,6 +362,15 @@ impl Message {
         Ok(result)
     }
 
+    pub fn encode_to_slice<'a>(&self, buf: &'a mut [u8]) -> Result<usize, Error> {
+        let mut enc = cobs::CobsEncoder::new(buf);
+        enc.push(self.as_bytes().as_slice()).unwrap();
+
+        let encoded_len = enc.finalize().unwrap();
+        buf[encoded_len] = COBS_SENTINEL;
+        Ok(encoded_len + 1)
+    }
+
     /// Splits COBS encoded self to frames for sending.
     /// Frames can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_frames<C: codec::WireCodec>(&self) -> Result<C::Frames, Error> {
@@ -702,6 +711,42 @@ mod tests {
         let messages = mr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], msg);
+    }
+
+    #[test]
+    fn test_encode_to_slice_status() {
+        let mut result = [0u8; 20];
+        let msg = Message::Status {
+            code: StatusCode::ErrBusyLoraTransmitting,
+        };
+        let result_len = msg.encode_to_slice(&mut result[..]).unwrap();
+        assert_eq!(result[0..result_len], msg.encode().unwrap()[..]);
+    }
+
+    #[test]
+    fn test_encode_to_slice_receive_data() {
+        let mut result = [0u8; 68];
+        let msg = Message::ReceiveData {
+            data: Vec::<u8, 255>::from_slice([0xab].repeat(64).as_slice()).unwrap(),
+        };
+        let result_len = msg.encode_to_slice(&mut result[..]).unwrap();
+        assert_eq!(result[0..result_len], msg.encode().unwrap()[..]);
+    }
+
+    #[test]
+    fn test_encode_to_slice_report() {
+        let mut result = [0u8; 68];
+        let version_data: [u8; 4] = [1, 2, 3, 4];
+        let msg = Message::Report {
+            sn: 0xa1a2a3a4,
+            version_data: u32::from_be_bytes(version_data),
+            region: 13,
+            receive_queue_size: 17, // TODO this should track messages not read by BLE connected host yet
+            transmit_queue_size: 25,
+        };
+        let result_len = msg.encode_to_slice(&mut result[..]).unwrap();
+        println!("{:02x?}", &result[0..result_len]);
+        assert_eq!(result[0..result_len], msg.encode().unwrap()[..]);
     }
 
     #[test]
