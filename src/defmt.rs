@@ -56,6 +56,12 @@ impl defmt::Format for ShortTermQueueItem {
 
 impl defmt::Format for StoreRecvOutcome {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        match self {
+            StoreRecvOutcome::NotSeenScheduled(s) => {
+                defmt::write!(fmt, "Outcome::NotSeenScheduled, {=u16}", s)
+            }
+            StoreRecvOutcome::Seen => defmt::write!(fmt, "Outcome::Seen"),
+            StoreRecvOutcome::Command => defmt::write!(fmt, "Outcome::Command"),
+        }
     }
 }
