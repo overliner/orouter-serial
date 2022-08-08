@@ -32,7 +32,14 @@ impl defmt::Format for StatusCode {
 
 impl defmt::Format for OverlineError {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "OverlineError::");
+        match self {
+            OverlineError::InvalidMessage => defmt::write!(fmt, "InvalidMessage"),
+            OverlineError::ShortTermQueueFull => defmt::write!(fmt, "ShortTermQueueFull"),
+            OverlineError::LongTermQueueFull => defmt::write!(fmt, "LongTermQueueFull"),
+            OverlineError::CannotReceive => defmt::write!(fmt, "CannotReceive"),
+            OverlineError::UnknownType => defmt::write!(fmt, "UnknownType"),
+        }
     }
 }
 
