@@ -75,6 +75,7 @@ pub enum StatusCode {
     ErrUnknownCommmandReceived = 3,
     ErrBusyLoraTransmitting = 4,
     ErrMessageQueueFull = 5,
+    RadioNotConfigured = 6,
 }
 
 impl TryFrom<u8> for StatusCode {
@@ -87,6 +88,7 @@ impl TryFrom<u8> for StatusCode {
             3 => Ok(StatusCode::ErrUnknownCommmandReceived),
             4 => Ok(StatusCode::ErrBusyLoraTransmitting),
             5 => Ok(StatusCode::ErrMessageQueueFull),
+            6 => Ok(StatusCode::RadioNotConfigured),
             _ => Err("Unknown StatusCode"),
         }
     }
@@ -106,6 +108,7 @@ impl fmt::Display for StatusCode {
                 f,
                 "Transmit queue is full, try sending SendData later again"
             ),
+            StatusCode::RadioNotConfigured => write!(f, "Error: radio is not configured"),
         }
     }
 }
