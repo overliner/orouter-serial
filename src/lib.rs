@@ -10,3 +10,6 @@ pub mod overline;
 // we don't want them derive()d in the modules unless defmt-impl feature is set
 #[cfg(feature = "defmt-impl")]
 pub mod defmt;
+
+// reexport heapless
+pub use heapless;
