@@ -140,11 +140,6 @@ impl WireCodec for Bt4502Codec {
     const MESSAGE_DELIMITER: Option<char> = None;
 
     fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
-        // data[0] = 'T' as u8;
-        // data[1] = 'T' as u8;
-        // data[2] = 'M' as u8;
-        // data[3] = ':' as u8;
-
         let mut frames = Vec::<Bt4502SerialFrameVec, 3>::new();
         for chunk in data.chunks_mut(240) {
             match chunk[0..4] {
