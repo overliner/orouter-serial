@@ -8,7 +8,16 @@ use crate::overline::{
 
 impl defmt::Format for HostError {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "HostError::");
+        match self {
+            HostError::BufferFull => defmt::write!(fmt, "BufferFull"),
+            HostError::BufferLengthNotSufficient => defmt::write!(fmt, "BufferLengthNotSufficient"),
+            HostError::MalformedMessage => defmt::write!(fmt, "MalformedMessage"),
+            HostError::MessageQueueFull => defmt::write!(fmt, "MessageQueueFull"),
+            HostError::MalformedHex(v) => defmt::write!(fmt, "MalformedHex"),
+            HostError::CannotAppendCommand => defmt::write!(fmt, "CannotAppendCommand"),
+            HostError::CannotSplitFrames => defmt::write!(fmt, "CannotSplitFrames"),
+        }
     }
 }
 

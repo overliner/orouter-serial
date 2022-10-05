@@ -27,6 +27,7 @@ pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * super::MAX_MESSAGE_LENGTH;
 type UsbSerialFrameVec = Vec<u8, MAX_USB_FRAME_LENGTH>;
 type BleSerialFrameVec = Vec<u8, MAX_BLE_FRAME_LENGTH>;
 type Bgx13SerialFrameVec = Vec<u8, 32>;
+type Bt4502SerialFrameVec = Vec<u8, 240>;
 
 pub trait WireCodec {
     const MESSAGE_DELIMITER: Option<char>;
@@ -129,6 +130,52 @@ impl WireCodec for Bgx13Codec {
         Ok((decoded, data.len()))
     }
 }
+
+pub struct Bt4502Codec {}
+
+// FIXME 32 and 9 - extract to CONSTS
+impl WireCodec for Bt4502Codec {
+    type Frames = Vec<Bt4502SerialFrameVec, 3>;
+    type IncomingFrame = Bt4502SerialFrameVec;
+    const MESSAGE_DELIMITER: Option<char> = None;
+
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+        // data[0] = 'T' as u8;
+        // data[1] = 'T' as u8;
+        // data[2] = 'M' as u8;
+        // data[3] = ':' as u8;
+
+        let mut frames = Vec::<Bt4502SerialFrameVec, 3>::new();
+        for chunk in data.chunks_mut(240) {
+            match chunk[0..4] {
+                [b'T', b'T', b'M', b':'] => {
+                    frames
+                        .push(Bt4502SerialFrameVec::from_slice(&chunk[0..2]).unwrap())
+                        .unwrap();
+                    frames
+                        .push(Bt4502SerialFrameVec::from_slice(&chunk[2..]).unwrap())
+                        .unwrap();
+                }
+                _ => frames
+                    .push(Bt4502SerialFrameVec::from_slice(&chunk).unwrap())
+                    .unwrap(),
+            };
+        }
+        Ok(frames)
+    }
+
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+        let mut decoded = Bt4502SerialFrameVec::new();
+        if data.len() > decoded.capacity() {
+            return Err(Error::BufferLengthNotSufficient);
+        }
+        decoded
+            .extend_from_slice(data)
+            .map_err(|_| Error::MalformedMessage)?;
+        Ok((decoded, data.len()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +217,17 @@ mod tests {
             assert_ne!(0x00, *b);
         }
         assert_eq!(Some(&0x00), last_frame.last());
+    }
+    #[test]
+    fn test_bt4502() {
+        let frames = Bt4502Codec::get_frames(&mut [0x01, 0x02, 0x03, 0x04]).unwrap();
+        assert_eq!(frames.len(), 1);
+    }
+    #[test]
+    fn test_bt4502_split() {
+        let frames = Bt4502Codec::get_frames(&mut [b'T', b'T', b'M', b':']).unwrap();
+        assert_eq!(frames[0].len(), 2);
+        assert_eq!(frames[1].len(), 2);
+        assert_eq!(frames.len(), 2);
     }
 }
