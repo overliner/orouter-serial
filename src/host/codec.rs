@@ -24,10 +24,16 @@ pub const MAX_BLE_FRAMES_COUNT: usize =
 
 pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * super::MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
 
+const MAX_BGX13_MESSAGE_LENGTH: usize = 32;
+const MAX_BGX13_FRAMES_COUNT: usize = 9;
+
+const MAX_BT4502_MESSAGE_LENGTH: usize = 240;
+const MAX_BT4502_FRAMES_COUNT: usize = 3;
+
 type UsbSerialFrameVec = Vec<u8, MAX_USB_FRAME_LENGTH>;
 type BleSerialFrameVec = Vec<u8, MAX_BLE_FRAME_LENGTH>;
-type Bgx13SerialFrameVec = Vec<u8, 32>;
-type Bt4502SerialFrameVec = Vec<u8, 240>;
+type Bgx13SerialFrameVec = Vec<u8, MAX_BGX13_MESSAGE_LENGTH>;
+type Bt4502SerialFrameVec = Vec<u8, MAX_BT4502_MESSAGE_LENGTH>;
 
 pub trait WireCodec {
     const MESSAGE_DELIMITER: Option<char>;
@@ -107,15 +113,14 @@ impl WireCodec for UsbCodec {
 
 pub struct Bgx13Codec {}
 
-// FIXME 32 and 9 - extract to CONSTS
 impl WireCodec for Bgx13Codec {
-    type Frames = Vec<Bgx13SerialFrameVec, 9>;
+    type Frames = Vec<Bgx13SerialFrameVec, MAX_BGX13_FRAMES_COUNT>;
     type IncomingFrame = Bgx13SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
     fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
-        let mut frames = Vec::<Bgx13SerialFrameVec, 9>::new();
-        for chunk in data.chunks_mut(32) {
+        let mut frames = Vec::<Bgx13SerialFrameVec, MAX_BGX13_FRAMES_COUNT>::new();
+        for chunk in data.chunks_mut(MAX_BGX13_MESSAGE_LENGTH) {
             frames
                 .push(Bgx13SerialFrameVec::from_slice(&chunk).unwrap())
                 .unwrap()
@@ -133,15 +138,14 @@ impl WireCodec for Bgx13Codec {
 
 pub struct Bt4502Codec {}
 
-// FIXME 32 and 9 - extract to CONSTS
 impl WireCodec for Bt4502Codec {
-    type Frames = Vec<Bt4502SerialFrameVec, 3>;
+    type Frames = Vec<Bt4502SerialFrameVec, MAX_BT4502_FRAMES_COUNT>;
     type IncomingFrame = Bt4502SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
     fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
-        let mut frames = Vec::<Bt4502SerialFrameVec, 3>::new();
-        for chunk in data.chunks_mut(240) {
+        let mut frames = Vec::<Bt4502SerialFrameVec, MAX_BT4502_FRAMES_COUNT>::new();
+        for chunk in data.chunks_mut(MAX_BT4502_MESSAGE_LENGTH) {
             match chunk[0..4] {
                 [b'T', b'T', b'M', b':'] => {
                     frames
