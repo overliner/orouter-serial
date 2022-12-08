@@ -66,7 +66,7 @@ impl Into<u8> for MessageType {
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Message(Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
+pub struct Message(pub(crate) Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
 impl Message {
@@ -149,9 +149,9 @@ pub enum StoreRecvOutcome {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct ShortTermQueueItem {
     /// determines in how many ticks the item expires for the short term queue
-    when: u16,
-    message_hash: MessageHash,
-    message_data_part: MessageDataPart,
+    pub(crate) when: u16,
+    pub(crate) message_hash: MessageHash,
+    pub(crate) message_data_part: MessageDataPart,
 }
 
 impl Ord for ShortTermQueueItem {

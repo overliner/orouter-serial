@@ -155,6 +155,8 @@ pub enum Message {
     },
 }
 
+// this is not derived with cfg_attr(feature = "std" because we want the fields to be formatted as
+// hex
 #[cfg(feature = "std")]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

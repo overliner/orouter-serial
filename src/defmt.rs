@@ -23,19 +23,54 @@ impl defmt::Format for HostError {
 
 impl defmt::Format for HostMessage {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "Message::");
+        match self {
+            HostMessage::SendData { data } => defmt::write!(fmt, "SendData {{ data: {=[u8]:x} }}", data),
+            HostMessage::ReceiveData { data } => defmt::write!(fmt, "ReceiveData {{ data: {=[u8]:x} }}", data),
+            HostMessage::Configure { region } => defmt::write!(fmt, "Configure {{ region: {=u8} }}", region),
+            HostMessage::ReportRequest => defmt::write!(fmt, "ReportRequest"),
+            HostMessage::Report {
+                sn,
+                version_data,
+                region,
+                receive_queue_size,
+                transmit_queue_size,
+            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=u32}, region: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
+            HostMessage::Status { code } => defmt::write!(fmt, "Status({=?})", code),
+            HostMessage::UpgradeFirmwareRequest => defmt::write!(fmt, "UpgradeFirmwareRequest"),
+            HostMessage::SetTimestamp { timestamp } => defmt::write!(fmt, "SetTimestamp({=u64})", timestamp),
+            HostMessage::GetRawIq => defmt::write!(fmt, "GetRawIq"),
+            HostMessage::RawIq { data } => defmt::write!(fmt, "RawIq {{ data: {=[u8]:x} }}", data)
+        }
     }
 }
 
 impl defmt::Format for ParseMessageError {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "ParseMessageError::");
+        match self {
+            ParseMessageError::MissingSeparator => defmt::write!(fmt, "MissingSeparator"),
+            ParseMessageError::InvalidMessage => defmt::write!(fmt, "InvalidMessage"),
+            ParseMessageError::InvalidHex(_) => defmt::write!(fmt, "InvalidHex"),
+            ParseMessageError::InvalidPayloadLength => defmt::write!(fmt, "InvalidPayloadLength"),
+            ParseMessageError::PayloadTooLong => defmt::write!(fmt, "PayloadTooLong"),
+        }
     }
 }
 
 impl defmt::Format for StatusCode {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "StatusCode::");
+        match self {
+            StatusCode::FrameReceived => defmt::write!(fmt, "FrameReceived"),
+            StatusCode::CommandReceived => defmt::write!(fmt, "CommandReceived"),
+            StatusCode::ErrUnknownCommmandReceived => {
+                defmt::write!(fmt, "ErrUnknownCommmandReceived")
+            }
+            StatusCode::ErrBusyLoraTransmitting => defmt::write!(fmt, "ErrBusyLoraTransmitting"),
+            StatusCode::ErrMessageQueueFull => defmt::write!(fmt, "ErrMessageQueueFull"),
+            StatusCode::RadioNotConfigured => defmt::write!(fmt, "RadioNotConfigured"),
+        }
     }
 }
 
@@ -54,19 +89,35 @@ impl defmt::Format for OverlineError {
 
 impl defmt::Format for OverlineMessage {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "Message({=[u8]:x})", self.0);
     }
 }
 
 impl defmt::Format for MessageType {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "MessageType::");
+        match self {
+            MessageType::Data => defmt::write!(fmt, "Data"),
+            MessageType::Challenge => defmt::write!(fmt, "Challenge"),
+            MessageType::Proof => defmt::write!(fmt, "Proof"),
+            MessageType::Flush => defmt::write!(fmt, "Flush"),
+            MessageType::Receipt => defmt::write!(fmt, "Receipt"),
+            MessageType::Other => defmt::write!(fmt, "Other"),
+        }
     }
 }
 
 impl defmt::Format for ShortTermQueueItem {
     fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "{=?}", self)
+        defmt::write!(fmt, "ShortTermQueueItem {{\n");
+        defmt::write!(fmt, "\twhen: {=u16}\n", self.when);
+        defmt::write!(fmt, "\tmessage_hash: {=[u8]:x}\n", self.message_hash);
+        defmt::write!(
+            fmt,
+            "\tmessage_data_part: {=[u8]:x}\n",
+            self.message_data_part
+        );
+        defmt::write!(fmt, "}}");
     }
 }
 
