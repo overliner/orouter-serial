@@ -1,7 +1,5 @@
 use heapless::Vec;
 
-use super::Error;
-
 const MAX_BLE_FRAME_LENGTH: usize = 128; // BLE can only process this
 pub const MAX_USB_FRAME_LENGTH: usize = 256; // USB can only process this
 ///
@@ -40,8 +38,22 @@ pub trait WireCodec {
     type Frames;
     type IncomingFrame: IntoIterator<Item = u8> + AsRef<[u8]>;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error>;
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error>;
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError>;
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError>;
+}
+
+#[derive(PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum CodecError {
+    FrameCreateError,
+    DecodeError,
+    MalformedHex(base16::DecodeError),
+}
+
+impl From<base16::DecodeError> for CodecError {
+    fn from(e: base16::DecodeError) -> CodecError {
+        CodecError::MalformedHex(e)
+    }
 }
 
 pub struct Rn4870Codec {}
@@ -51,9 +63,11 @@ impl WireCodec for Rn4870Codec {
     type Frames = Vec<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>;
     type IncomingFrame = BleSerialFrameVec;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
         let mut hex_result = Vec::<u8, MAX_MESSAGE_LENGTH_HEX_ENCODED>::new();
-        hex_result.resize_default(data.len() * 2).unwrap();
+        hex_result
+            .resize_default(data.len() * 2)
+            .map_err(|_| CodecError::FrameCreateError)?;
         base16::encode_config_slice(&data, base16::EncodeLower, &mut hex_result);
 
         // wrap each chunk in a delimiter char
@@ -61,27 +75,37 @@ impl WireCodec for Rn4870Codec {
         for chunk in hex_result.chunks_mut(MAX_BLE_FRAME_LENGTH - 2) {
             let mut frame = BleSerialFrameVec::new();
             if let Some(delim) = Self::MESSAGE_DELIMITER {
-                frame.push(delim as u8).unwrap();
+                frame
+                    .push(delim as u8)
+                    .map_err(|_| CodecError::FrameCreateError)?;
             };
-            frame.extend_from_slice(&chunk).unwrap();
+            frame
+                .extend_from_slice(&chunk)
+                .map_err(|_| CodecError::FrameCreateError)?;
             if let Some(delim) = Self::MESSAGE_DELIMITER {
-                frame.push(delim as u8).unwrap();
+                frame
+                    .push(delim as u8)
+                    .map_err(|_| CodecError::FrameCreateError)?;
             };
-            frames.push(frame).unwrap()
+            frames
+                .push(frame)
+                .map_err(|_| CodecError::FrameCreateError)?
         }
         Ok(frames)
     }
 
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError> {
         let mut decoded = Vec::<u8, 64>::new();
-        decoded.resize_default(64).unwrap();
+        decoded
+            .resize_default(64)
+            .map_err(|_| CodecError::DecodeError)?;
         match base16::decode_slice(&data, &mut decoded) {
             Ok(decoded_len) => {
                 let result = Vec::from_slice(&decoded[0..decoded_len])
-                    .map_err(|_| Error::MalformedMessage)?;
+                    .map_err(|_| CodecError::DecodeError)?;
                 Ok((result, decoded_len))
             }
-            Err(e) => Err(Error::MalformedHex(e)),
+            Err(e) => Err(CodecError::MalformedHex(e)),
         }
     }
 }
@@ -93,20 +117,23 @@ impl WireCodec for UsbCodec {
     type IncomingFrame = UsbSerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>::new();
         for chunk in data.chunks_mut(MAX_USB_FRAME_LENGTH) {
             frames
-                .push(UsbSerialFrameVec::from_slice(&chunk).unwrap())
-                .unwrap()
+                .push(
+                    UsbSerialFrameVec::from_slice(&chunk)
+                        .map_err(|_| CodecError::FrameCreateError)?,
+                )
+                .map_err(|_| CodecError::FrameCreateError)?
         }
         Ok(frames)
     }
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError> {
         let mut decoded = UsbSerialFrameVec::new();
         decoded
             .extend_from_slice(data)
-            .map_err(|_| Error::MalformedMessage)?;
+            .map_err(|_| CodecError::DecodeError)?;
         Ok((decoded, data.len()))
     }
 }
@@ -118,20 +145,23 @@ impl WireCodec for Bgx13Codec {
     type IncomingFrame = Bgx13SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<Bgx13SerialFrameVec, MAX_BGX13_FRAMES_COUNT>::new();
         for chunk in data.chunks_mut(MAX_BGX13_MESSAGE_LENGTH) {
             frames
-                .push(Bgx13SerialFrameVec::from_slice(&chunk).unwrap())
-                .unwrap()
+                .push(
+                    Bgx13SerialFrameVec::from_slice(&chunk)
+                        .map_err(|_| CodecError::FrameCreateError)?,
+                )
+                .map_err(|_| CodecError::FrameCreateError)?
         }
         Ok(frames)
     }
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError> {
         let mut decoded = Bgx13SerialFrameVec::new();
         decoded
             .extend_from_slice(data)
-            .map_err(|_| Error::MalformedMessage)?;
+            .map_err(|_| CodecError::DecodeError)?;
         Ok((decoded, data.len()))
     }
 }
@@ -143,34 +173,40 @@ impl WireCodec for Bt4502Codec {
     type IncomingFrame = Bt4502SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, Error> {
+    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<Bt4502SerialFrameVec, MAX_BT4502_FRAMES_COUNT>::new();
         for chunk in data.chunks_mut(MAX_BT4502_MESSAGE_LENGTH) {
             match chunk[0..4] {
                 [b'T', b'T', b'M', b':'] => {
                     frames
-                        .push(Bt4502SerialFrameVec::from_slice(&chunk[0..2]).unwrap())
-                        .unwrap();
+                        .push(
+                            Bt4502SerialFrameVec::from_slice(&chunk[0..2])
+                                .map_err(|_| CodecError::FrameCreateError)?,
+                        )
+                        .map_err(|_| CodecError::FrameCreateError)?;
                     frames
-                        .push(Bt4502SerialFrameVec::from_slice(&chunk[2..]).unwrap())
-                        .unwrap();
+                        .push(
+                            Bt4502SerialFrameVec::from_slice(&chunk[2..])
+                                .map_err(|_| CodecError::FrameCreateError)?,
+                        )
+                        .map_err(|_| CodecError::FrameCreateError)?;
                 }
                 _ => frames
-                    .push(Bt4502SerialFrameVec::from_slice(&chunk).unwrap())
-                    .unwrap(),
+                    .push(
+                        Bt4502SerialFrameVec::from_slice(&chunk)
+                            .map_err(|_| CodecError::FrameCreateError)?,
+                    )
+                    .map_err(|_| CodecError::FrameCreateError)?,
             };
         }
         Ok(frames)
     }
 
-    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), Error> {
+    fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError> {
         let mut decoded = Bt4502SerialFrameVec::new();
-        if data.len() > decoded.capacity() {
-            return Err(Error::BufferLengthNotSufficient);
-        }
         decoded
             .extend_from_slice(data)
-            .map_err(|_| Error::MalformedMessage)?;
+            .map_err(|_| CodecError::DecodeError)?;
         Ok((decoded, data.len()))
     }
 }

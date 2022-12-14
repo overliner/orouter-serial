@@ -1,6 +1,8 @@
 use defmt::Formatter;
 
-use crate::host::{Error as HostError, Message as HostMessage, ParseMessageError, StatusCode};
+use crate::host::{
+    codec, Error as HostError, Message as HostMessage, ParseMessageError, StatusCode,
+};
 use crate::overline::{
     Error as OverlineError, Message as OverlineMessage, MessageType, ShortTermQueueItem,
     StoreRecvOutcome,
@@ -14,9 +16,19 @@ impl defmt::Format for HostError {
             HostError::BufferLengthNotSufficient => defmt::write!(fmt, "BufferLengthNotSufficient"),
             HostError::MalformedMessage => defmt::write!(fmt, "MalformedMessage"),
             HostError::MessageQueueFull => defmt::write!(fmt, "MessageQueueFull"),
-            HostError::MalformedHex(v) => defmt::write!(fmt, "MalformedHex"),
             HostError::CannotAppendCommand => defmt::write!(fmt, "CannotAppendCommand"),
-            HostError::CannotSplitFrames => defmt::write!(fmt, "CannotSplitFrames"),
+            HostError::CodecError(e) => defmt::write!(fmt, "CodecError({:?})", e),
+        }
+    }
+}
+
+impl defmt::Format for codec::CodecError {
+    fn format(&self, fmt: Formatter<'_>) {
+        defmt::write!(fmt, "CodecError::");
+        match self {
+            codec::CodecError::FrameCreateError => defmt::write!(fmt, "FrameCreateError"),
+            codec::CodecError::DecodeError => defmt::write!(fmt, "DecodeError"),
+            codec::CodecError::MalformedHex(_) => defmt::write!(fmt, "MalformedHex"),
         }
     }
 }

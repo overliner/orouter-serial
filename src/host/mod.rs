@@ -56,14 +56,13 @@ pub enum Error {
     BufferLengthNotSufficient,
     MalformedMessage,
     MessageQueueFull,
-    MalformedHex(base16::DecodeError),
     CannotAppendCommand,
-    CannotSplitFrames,
+    CodecError(codec::CodecError),
 }
 
-impl From<base16::DecodeError> for Error {
-    fn from(e: base16::DecodeError) -> Error {
-        Error::MalformedHex(e)
+impl From<codec::CodecError> for Error {
+    fn from(e: codec::CodecError) -> Error {
+        Error::CodecError(e)
     }
 }
 
@@ -381,7 +380,7 @@ impl Message {
     /// Frames can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_frames<C: codec::WireCodec>(&self) -> Result<C::Frames, Error> {
         let mut result = self.encode()?;
-        let frames = C::get_frames(&mut result[..]).map_err(|_| Error::CannotSplitFrames)?;
+        let frames = C::get_frames(&mut result[..]).map_err(|e| Error::CodecError(e))?;
         Ok(frames)
     }
 }
@@ -444,15 +443,6 @@ impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
         }
         Ok(output)
     }
-
-    // pub fn process_bytes_hex(&mut self, hex_bytes: &[u8]) -> Result<Vec<Message, QL>, Error> {
-    //     let mut decoded = Vec::<u8, 64>::new();
-    //     decoded.resize_default(64).unwrap();
-    //     match base16::decode_slice(&hex_bytes, &mut decoded) {
-    //         Ok(decoded_len) => self.process_bytes(&decoded[0..decoded_len]),
-    //         Err(e) => Err(Error::MalformedHex(e)),
-    //     }
-    // }
 
     pub fn ltrim(&mut self, length: usize) -> Result<(), Error> {
         if self.buf.len() < length {
