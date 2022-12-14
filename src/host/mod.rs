@@ -195,6 +195,7 @@ impl From<base16::DecodeError> for ParseMessageError {
     }
 }
 
+#[cfg(feature = "std")]
 impl FromStr for Message {
     type Err = ParseMessageError;
 
