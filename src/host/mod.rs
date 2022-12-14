@@ -57,6 +57,7 @@ pub enum Error {
     MessageQueueFull,
     CannotAppendCommand,
     CodecError(codec::CodecError),
+    CobsEncodeError,
 }
 
 impl From<codec::CodecError> for Error {
@@ -245,30 +246,37 @@ impl TryFrom<&[u8]> for Message {
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         match buf[0] {
             0xc0 => Ok(Message::SendData {
-                data: Vec::<u8, 255>::from_slice(&buf[1..]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?,
             }),
             0xc1 => Ok(Message::ReceiveData {
-                data: Vec::<u8, 255>::from_slice(&buf[1..]).unwrap(),
+                data: Vec::<u8, 255>::from_slice(&buf[1..])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?,
             }),
             0xc2 => Ok(Message::Configure { region: buf[1] }),
             0xc3 => Ok(Message::ReportRequest),
             0xc4 => Ok(Message::Report {
-                sn: u32::from_be_bytes(buf[1..5].try_into().unwrap()),
-                version_data: u32::from_be_bytes(buf[5..9].try_into().unwrap()),
+                sn: u32::from_be_bytes(buf[1..5].try_into().map_err(|_| Error::MalformedMessage)?),
+                version_data: u32::from_be_bytes(
+                    buf[5..9].try_into().map_err(|_| Error::MalformedMessage)?,
+                ),
                 region: buf[9],
                 receive_queue_size: buf[10],
                 transmit_queue_size: buf[11],
             }),
             0xc5 => Ok(Message::Status {
-                code: buf[1].try_into().unwrap(),
+                code: buf[1].try_into().map_err(|_| Error::MalformedMessage)?,
             }),
             0xc6 => Ok(Message::UpgradeFirmwareRequest),
             0xc7 => Ok(Message::SetTimestamp {
-                timestamp: u64::from_be_bytes(buf[1..9].try_into().unwrap()),
+                timestamp: u64::from_be_bytes(
+                    buf[1..9].try_into().map_err(|_| Error::MalformedMessage)?,
+                ),
             }),
             0xc8 => Ok(Message::GetRawIq),
             0xc9 => Ok(Message::RawIq {
-                data: Vec::<u8, RAWIQ_DATA_LENGTH>::from_slice(&buf[1..]).unwrap(),
+                data: Vec::<u8, RAWIQ_DATA_LENGTH>::from_slice(&buf[1..])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?,
             }),
             _ => Err(Error::MalformedMessage),
         }
@@ -307,21 +315,28 @@ impl Message {
         1 + variable_part_length
     }
 
-    pub fn as_bytes(&self) -> Vec<u8, MAX_MESSAGE_LENGTH> {
+    pub fn as_bytes(&self) -> Result<Vec<u8, MAX_MESSAGE_LENGTH>, Error> {
         let mut res = Vec::new();
         match self {
             Message::SendData { data } => {
-                res.push(0xc0).unwrap();
-                res.extend_from_slice(&data).unwrap();
+                res.push(0xc0)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&data)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::ReceiveData { data } => {
-                res.push(0xc1).unwrap();
-                res.extend_from_slice(&data).unwrap();
+                res.push(0xc1)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&data)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::Configure { region } => {
-                res.extend_from_slice(&[0xc2, *region]).unwrap();
+                res.extend_from_slice(&[0xc2, *region])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
-            Message::ReportRequest => res.push(0xc3).unwrap(),
+            Message::ReportRequest => res
+                .push(0xc3)
+                .map_err(|_| Error::BufferLengthNotSufficient)?,
             Message::Report {
                 sn,
                 version_data,
@@ -329,49 +344,65 @@ impl Message {
                 receive_queue_size,
                 transmit_queue_size,
             } => {
-                res.push(0xc4).unwrap();
-                res.extend_from_slice(&u32::to_be_bytes(*sn)).unwrap();
+                res.push(0xc4)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&u32::to_be_bytes(*sn))
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&u32::to_be_bytes(*version_data))
-                    .unwrap();
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&[*region, *receive_queue_size, *transmit_queue_size])
-                    .unwrap();
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::Status { code } => {
-                res.extend_from_slice(&[0xc5, code.clone() as u8]).unwrap();
+                res.extend_from_slice(&[0xc5, code.clone() as u8])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
-            Message::UpgradeFirmwareRequest => res.push(0xc6).unwrap(),
+            Message::UpgradeFirmwareRequest => res
+                .push(0xc6)
+                .map_err(|_| Error::BufferLengthNotSufficient)?,
             Message::SetTimestamp { timestamp } => {
-                res.push(0xc7).unwrap();
+                res.push(0xc7)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&u64::to_be_bytes(*timestamp))
-                    .unwrap()
+                    .map_err(|_| Error::BufferLengthNotSufficient)?
             }
-            Message::GetRawIq => res.push(0xc8).unwrap(),
+            Message::GetRawIq => res
+                .push(0xc8)
+                .map_err(|_| Error::BufferLengthNotSufficient)?,
             Message::RawIq { data } => {
-                res.push(0xc9).unwrap();
-                res.extend_from_slice(&data).unwrap();
+                res.push(0xc9)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&data)
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
         };
-        res
+        Ok(res)
     }
 
     pub fn encode(&self) -> Result<HostMessageVec, Error> {
         let mut result = HostMessageVec::new(); // Maximum message length is 256 + cobs overhead
         let mut encoded_len = cobs::max_encoding_length(self.len() + 1);
-        result.resize_default(encoded_len).unwrap();
+        result
+            .resize_default(encoded_len)
+            .map_err(|_| Error::BufferLengthNotSufficient)?;
         let mut enc = cobs::CobsEncoder::new(&mut result);
-        enc.push(self.as_bytes().as_slice()).unwrap();
+        enc.push(self.as_bytes()?.as_slice())
+            .map_err(|_| Error::CobsEncodeError)?;
 
-        encoded_len = enc.finalize().unwrap();
-        result.push(COBS_SENTINEL).unwrap();
+        encoded_len = enc.finalize().map_err(|_| Error::CobsEncodeError)?;
+        result
+            .push(COBS_SENTINEL)
+            .map_err(|_| Error::BufferLengthNotSufficient)?;
         result.truncate(encoded_len + 1_usize);
         Ok(result)
     }
 
     pub fn encode_to_slice<'a>(&self, buf: &'a mut [u8]) -> Result<usize, Error> {
         let mut enc = cobs::CobsEncoder::new(buf);
-        enc.push(self.as_bytes().as_slice()).unwrap();
+        enc.push(self.as_bytes()?.as_slice())
+            .map_err(|_| Error::CobsEncodeError)?;
 
-        let encoded_len = enc.finalize().unwrap();
+        let encoded_len = enc.finalize().map_err(|_| Error::CobsEncodeError)?;
         buf[encoded_len] = COBS_SENTINEL;
         Ok(encoded_len + 1)
     }
@@ -416,7 +447,8 @@ impl<const BUFL: usize, const QL: usize> MessageReader<BUFL, QL> {
             if self.buf[cobs_index] == COBS_SENTINEL {
                 match Message::try_from_cobs(&mut self.buf[0..cobs_index]) {
                     Ok(command) => {
-                        self.buf = Vec::from_slice(&self.buf[cobs_index + 1..]).unwrap(); // +1 do not include the COBS_SENTINEL
+                        self.buf = Vec::from_slice(&self.buf[cobs_index + 1..])
+                            .map_err(|_| Error::BufferLengthNotSufficient)?; // +1 do not include the COBS_SENTINEL
                         cobs_index = 0;
                         if output.len() < QL {
                             output

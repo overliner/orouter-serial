@@ -18,6 +18,7 @@ impl defmt::Format for HostError {
             HostError::MessageQueueFull => defmt::write!(fmt, "MessageQueueFull"),
             HostError::CannotAppendCommand => defmt::write!(fmt, "CannotAppendCommand"),
             HostError::CodecError(e) => defmt::write!(fmt, "CodecError({:?})", e),
+            HostError::CobsEncodeError => defmt::write!(fmt, "CobsEncodeError"),
         }
     }
 }
