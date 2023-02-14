@@ -291,6 +291,13 @@ impl<'a, R: RngCore> MessageStore<'a, R> {
         Ok(result)
     }
 
+    pub fn mark_seen(&mut self, message: &Message) -> Result<(), Error> {
+        if !self.long_term_queue.as_slice().contains(&message.hash()?) {
+            self.long_term_queue.write(message.hash()?)
+        }
+        Ok(())
+    }
+
     // will produce 0-ShortTermQueueLength, this will need tuning when timer set up
     fn get_interval(&mut self) -> u16 {
         let rng = self.rng.next_u32();
