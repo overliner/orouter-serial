@@ -135,7 +135,7 @@ pub enum Message {
         /// BE encoded
         sn: u32,
         /// BE encoded
-        version_data: u32,
+        version_data: Vec<u8, 9>,
         region: u8,
         receive_queue_size: u8,
         transmit_queue_size: u8,
@@ -170,7 +170,7 @@ impl fmt::Debug for Message {
                 region,
                 receive_queue_size,
                 transmit_queue_size,
-            } => write!(f, "Report {{ sn: {:?}, version_data: {:?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
+            } => write!(f, "Report {{ sn: {:?}, version_data: {:02x?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
@@ -257,12 +257,12 @@ impl TryFrom<&[u8]> for Message {
             0xc3 => Ok(Message::ReportRequest),
             0xc4 => Ok(Message::Report {
                 sn: u32::from_be_bytes(buf[1..5].try_into().map_err(|_| Error::MalformedMessage)?),
-                version_data: u32::from_be_bytes(
-                    buf[5..9].try_into().map_err(|_| Error::MalformedMessage)?,
-                ),
-                region: buf[9],
-                receive_queue_size: buf[10],
-                transmit_queue_size: buf[11],
+                version_data: Vec::<u8, 9>::from_slice(&buf[5..14])
+                    .map_err(|_| Error::MalformedMessage)?,
+
+                region: buf[14],
+                receive_queue_size: buf[15],
+                transmit_queue_size: buf[16],
             }),
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().map_err(|_| Error::MalformedMessage)?,
@@ -304,7 +304,7 @@ impl Message {
             Message::ReceiveData { data } => data.len(),
             Message::Configure { .. } => 1,
             Message::ReportRequest => 0,
-            Message::Report { .. } => 11,
+            Message::Report { .. } => 16,
             Message::Status { .. } => 1,
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
@@ -348,7 +348,7 @@ impl Message {
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&u32::to_be_bytes(*sn))
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
-                res.extend_from_slice(&u32::to_be_bytes(*version_data))
+                res.extend_from_slice(&version_data)
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&[*region, *receive_queue_size, *transmit_queue_size])
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
@@ -511,11 +511,14 @@ mod tests {
     #[test]
     fn test_msg_len() {
         assert_eq!(
-            12,
+            17,
             Message::Report {
                 region: 0x01,
                 sn: 12345678u32,
-                version_data: 0x00_01_00_01u32, // firmware version 0.1.0, hw revision 1
+                version_data: Vec::<u8, 9>::from_slice(&[
+                    0x01, 0x00, 0x01, 0x00, 0x04, 0x40, 0x6e, 0xd3, 0x01,
+                ])
+                .unwrap(), // hw revision, firmware version 0.1.0, commit 4406ed3, dirty
                 receive_queue_size: 1,
                 transmit_queue_size: 3
             }
@@ -764,10 +767,12 @@ mod tests {
     #[test]
     fn test_encode_to_slice_report() {
         let mut result = [0u8; 68];
-        let version_data: [u8; 4] = [1, 2, 3, 4];
         let msg = Message::Report {
             sn: 0xa1a2a3a4,
-            version_data: u32::from_be_bytes(version_data),
+            version_data: Vec::<u8, 9>::from_slice(&[
+                0x01, 0x00, 0x01, 0x00, 0x04, 0x40, 0x6e, 0xd3, 0x01,
+            ])
+            .unwrap(), // hw revision, firmware version 0.1.0, commit 4406ed3, dirty
             region: 13,
             receive_queue_size: 17, // TODO this should track messages not read by BLE connected host yet
             transmit_queue_size: 25,

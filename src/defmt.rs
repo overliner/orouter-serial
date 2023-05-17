@@ -48,7 +48,7 @@ impl defmt::Format for HostMessage {
                 region,
                 receive_queue_size,
                 transmit_queue_size,
-            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=u32}, region: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
+            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=[u8]:x}, region: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
             HostMessage::Status { code } => defmt::write!(fmt, "Status({=?})", code),
             HostMessage::UpgradeFirmwareRequest => defmt::write!(fmt, "UpgradeFirmwareRequest"),
             HostMessage::SetTimestamp { timestamp } => defmt::write!(fmt, "SetTimestamp({=u64})", timestamp),
