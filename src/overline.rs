@@ -24,44 +24,6 @@ pub enum Error {
     UnknownType,
 }
 
-// FIXME define these according to the design document
-#[derive(PartialEq, Clone)]
-#[cfg_attr(feature = "std", derive(Debug))]
-pub enum MessageType {
-    Data,
-    Challenge,
-    Proof,
-    Flush,
-    Receipt,
-    Other,
-}
-
-impl From<u8> for MessageType {
-    fn from(n: u8) -> Self {
-        match n {
-            0x01 => Self::Data,
-            0x02 => Self::Challenge,
-            0x03 => Self::Proof,
-            0x04 => Self::Flush,
-            0x05 => Self::Receipt,
-            _ => Self::Other,
-        }
-    }
-}
-
-impl Into<u8> for MessageType {
-    fn into(self) -> u8 {
-        match self {
-            Self::Data => 0x01,
-            Self::Challenge => 0x02,
-            Self::Proof => 0x03,
-            Self::Flush => 0x04,
-            Self::Receipt => 0x05,
-            Self::Other => 0xff,
-        }
-    }
-}
-
 /// Logical message of overline protocol - does not contain any link level data
 /// (e.g. magic byte, message type, or information about how 512B message was transferred)
 #[derive(Clone, PartialEq)]
@@ -116,14 +78,14 @@ impl Message {
         }
     }
 
-    pub fn typ(&self) -> Result<MessageType, Error> {
+    pub fn typ(&self) -> Result<wireless_protocol::MessageType, Error> {
         match self.0[MESSAGE_HASH_LENGTH] {
-            0x01 => Ok(MessageType::Data),
-            0x02 => Ok(MessageType::Challenge),
-            0x03 => Ok(MessageType::Proof),
-            0x04 => Ok(MessageType::Flush),
-            0x05 => Ok(MessageType::Receipt),
-            0xff => Ok(MessageType::Other),
+            0x01 => Ok(wireless_protocol::MessageType::Data),
+            0x02 => Ok(wireless_protocol::MessageType::Challenge),
+            0x03 => Ok(wireless_protocol::MessageType::Proof),
+            0x04 => Ok(wireless_protocol::MessageType::Flush),
+            0x05 => Ok(wireless_protocol::MessageType::Receipt),
+            0xff => Ok(wireless_protocol::MessageType::Other),
             _ => Err(Error::UnknownType),
         }
     }
@@ -339,7 +301,7 @@ mod tests {
         let m = Message(
             Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
-                0xbb, 0xcc, 0xff, 0xff,
+                0xbb, 0xcc, 0xef, 0xff,
             ])
             .unwrap(),
         );
@@ -351,11 +313,11 @@ mod tests {
         let m = Message(
             Vec::from_slice(&[
                 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
-                0xbb, 0xcc, 0x11, 0xff,
+                0xbb, 0xcc, 0x02, 0xff,
             ])
             .unwrap(),
         );
-        assert_eq!(MessageType::Challenge, m.typ().unwrap())
+        assert_eq!(wireless_protocol::MessageType::Challenge, m.typ().unwrap())
     }
 
     #[test]
@@ -368,13 +330,13 @@ mod tests {
         .unwrap();
         let data = Vec::<u8, 239>::from_slice(&[
             // type (other) + some data ->
-            0x15, 0xda, 0x1a, 0xda, 0x1a,
+            0xff, 0xda, 0x1a, 0xda, 0x1a,
         ])
         .unwrap();
 
         let m = Message::try_from_hash_data(hash.clone(), data.clone()).unwrap();
         assert_eq!(hash, m.hash().unwrap());
-        assert_eq!(MessageType::Other, m.typ().unwrap());
+        assert_eq!(wireless_protocol::MessageType::Other, m.typ().unwrap());
 
         // m moves here
         let (hash_new, data_new) = m.into_hash_data().unwrap();

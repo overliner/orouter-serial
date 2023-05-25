@@ -4,8 +4,7 @@ use crate::host::{
     codec, Error as HostError, Message as HostMessage, ParseMessageError, StatusCode,
 };
 use crate::overline::{
-    Error as OverlineError, Message as OverlineMessage, MessageType, ShortTermQueueItem,
-    StoreRecvOutcome,
+    Error as OverlineError, Message as OverlineMessage, ShortTermQueueItem, StoreRecvOutcome,
 };
 
 impl defmt::Format for HostError {
@@ -103,20 +102,6 @@ impl defmt::Format for OverlineError {
 impl defmt::Format for OverlineMessage {
     fn format(&self, fmt: Formatter<'_>) {
         defmt::write!(fmt, "Message({=[u8]:x})", self.0);
-    }
-}
-
-impl defmt::Format for MessageType {
-    fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "MessageType::");
-        match self {
-            MessageType::Data => defmt::write!(fmt, "Data"),
-            MessageType::Challenge => defmt::write!(fmt, "Challenge"),
-            MessageType::Proof => defmt::write!(fmt, "Proof"),
-            MessageType::Flush => defmt::write!(fmt, "Flush"),
-            MessageType::Receipt => defmt::write!(fmt, "Receipt"),
-            MessageType::Other => defmt::write!(fmt, "Other"),
-        }
     }
 }
 
