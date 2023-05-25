@@ -118,11 +118,12 @@ impl Message {
 
     pub fn typ(&self) -> Result<MessageType, Error> {
         match self.0[MESSAGE_HASH_LENGTH] {
-            0x11 => Ok(MessageType::Challenge),
-            0x12 => Ok(MessageType::Proof),
-            0x13 => Ok(MessageType::Flush),
-            0x14 => Ok(MessageType::Receipt),
-            0x15 => Ok(MessageType::Other),
+            0x01 => Ok(MessageType::Data),
+            0x02 => Ok(MessageType::Challenge),
+            0x03 => Ok(MessageType::Proof),
+            0x04 => Ok(MessageType::Flush),
+            0x05 => Ok(MessageType::Receipt),
+            0xff => Ok(MessageType::Other),
             _ => Err(Error::UnknownType),
         }
     }
