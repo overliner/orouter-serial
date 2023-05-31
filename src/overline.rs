@@ -9,10 +9,11 @@ use heapless::{HistoryBuffer, Vec};
 use rand::prelude::*;
 
 pub const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
-pub const MESSAGE_HASH_LENGTH: usize = 16;
-pub const MESSAGE_MAX_DATA_LENGTH: usize = MAX_LORA_PAYLOAD_LENGTH - MESSAGE_HASH_LENGTH;
+pub const OVERLINE_STORE_MESSAGE_HASH_LENGTH: usize = 16;
+pub const MESSAGE_MAX_DATA_LENGTH: usize =
+    MAX_LORA_PAYLOAD_LENGTH - OVERLINE_STORE_MESSAGE_HASH_LENGTH;
 pub type MessageDataPart = Vec<u8, MESSAGE_MAX_DATA_LENGTH>; // FIXME better naming
-pub type MessageHash = Vec<u8, MESSAGE_HASH_LENGTH>;
+pub type MessageHash = Vec<u8, OVERLINE_STORE_MESSAGE_HASH_LENGTH>;
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -31,13 +32,16 @@ pub enum Error {
 pub struct Message(pub(crate) Vec<u8, MAX_LORA_PAYLOAD_LENGTH>);
 
 // FIXME implement into host::Message::SendData and host::Message::ReceiveData
+/// This represents an overline message for purpose of working with is in the firmware. This is not
+/// an equivalent of wireless_protocol::Message. Data passed to new method should already have been
+/// validated using wireless_protocol::is_valid_message
 impl Message {
     pub fn new(data: Vec<u8, MAX_LORA_PAYLOAD_LENGTH>) -> Self {
         Message(data)
     }
 
     pub fn try_from_hash_data(hash: MessageHash, data: MessageDataPart) -> Result<Self, Error> {
-        if hash.len() != MESSAGE_HASH_LENGTH {
+        if hash.len() != OVERLINE_STORE_MESSAGE_HASH_LENGTH {
             return Err(Error::InvalidMessage);
         }
 
@@ -61,25 +65,25 @@ impl Message {
     }
 
     pub fn hash(&self) -> Result<MessageHash, Error> {
-        if self.0.len() < MESSAGE_HASH_LENGTH {
+        if self.0.len() < OVERLINE_STORE_MESSAGE_HASH_LENGTH {
             return Err(Error::InvalidMessage);
         }
 
-        match MessageHash::from_slice(&self.0[0..MESSAGE_HASH_LENGTH]) {
+        match MessageHash::from_slice(&self.0[0..OVERLINE_STORE_MESSAGE_HASH_LENGTH]) {
             Ok(h) => Ok(h),
             Err(()) => Err(Error::InvalidMessage),
         }
     }
 
     pub fn data_part(&self) -> Result<MessageDataPart, Error> {
-        match MessageDataPart::from_slice(&self.0[MESSAGE_HASH_LENGTH..]) {
+        match MessageDataPart::from_slice(&self.0[OVERLINE_STORE_MESSAGE_HASH_LENGTH..]) {
             Ok(h) => Ok(h),
             Err(()) => Err(Error::InvalidMessage),
         }
     }
 
     pub fn typ(&self) -> Result<wireless_protocol::MessageType, Error> {
-        match self.0[MESSAGE_HASH_LENGTH] {
+        match self.0[OVERLINE_STORE_MESSAGE_HASH_LENGTH] {
             0x01 => Ok(wireless_protocol::MessageType::Data),
             0x02 => Ok(wireless_protocol::MessageType::Challenge),
             0x03 => Ok(wireless_protocol::MessageType::Proof),
