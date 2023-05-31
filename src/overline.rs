@@ -83,7 +83,7 @@ impl Message {
     }
 
     pub fn typ(&self) -> Result<wireless_protocol::MessageType, Error> {
-        match self.0[OVERLINE_STORE_MESSAGE_HASH_LENGTH] {
+        match self.0[wireless_protocol::MSG_TYPE_IDX] {
             0x01 => Ok(wireless_protocol::MessageType::Data),
             0x02 => Ok(wireless_protocol::MessageType::Challenge),
             0x03 => Ok(wireless_protocol::MessageType::Proof),
@@ -316,7 +316,7 @@ mod tests {
     fn test_typ_ok() {
         let m = Message(
             Vec::from_slice(&[
-                0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x02, 0xaa, 0xaa,
                 0xbb, 0xcc, 0x02, 0xff,
             ])
             .unwrap(),
@@ -327,14 +327,14 @@ mod tests {
     #[test]
     fn test_try_from_into_hash_data() {
         let hash = Vec::<u8, 16>::from_slice(&[
-            // hash
-            0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10,
+            // hash                                                           type
+            0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0x10, 0xaa, 0xff, 0xaa, 0x10,
             0xaa, 0x10,
         ])
         .unwrap();
         let data = Vec::<u8, 239>::from_slice(&[
-            // type (other) + some data ->
-            0xff, 0xda, 0x1a, 0xda, 0x1a,
+            // some data ->
+            0xef, 0xda, 0x1a, 0xda, 0x1a,
         ])
         .unwrap();
 
