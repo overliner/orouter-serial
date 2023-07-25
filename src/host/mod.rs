@@ -12,6 +12,7 @@
 use core::convert::{TryFrom, TryInto};
 #[cfg(feature = "std")]
 use core::fmt;
+#[cfg(feature = "std")]
 use core::str::FromStr;
 use heapless::Vec;
 
@@ -127,7 +128,7 @@ pub enum Message {
         data: Vec<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Host is recongifuring the node
-    Configure { region: u8 },
+    Configure { region: u8, spreading_factor: u8 },
     /// Host requesting the node status
     ReportRequest,
     /// Node reporting information to host
@@ -162,7 +163,7 @@ impl fmt::Debug for Message {
         match self {
             Message::SendData { data } => write!(f, "SendData {{ data: {:02x?} }}", data),
             Message::ReceiveData { data } => write!(f, "ReceiveData {{ data: {:02x?} }}", data),
-            Message::Configure { region } => write!(f, "Configure {{ region: {:02x?} }}", region),
+            Message::Configure { region, spreading_factor } => write!(f, "Configure {{ region: {:02x?}, spreading_factor: {:?} }}", region, spreading_factor),
             Message::ReportRequest => write!(f, "ReportRequest"),
             Message::Report {
                 sn,
@@ -180,7 +181,7 @@ impl fmt::Debug for Message {
     }
 }
 
-#[cfg_attr(feature = "std", derive(Debug))]
+#[cfg_attr(feature = "std", derive(Debug, PartialEq))]
 pub enum ParseMessageError {
     MissingSeparator,
     InvalidMessage,
@@ -227,8 +228,21 @@ impl FromStr for Message {
             }
             "status" => Ok(Message::ReportRequest),
             "config" => {
-                let region = u8::from_str(val).unwrap();
-                Ok(Message::Configure { region })
+                if !val.contains('|') {
+                    return Err(ParseMessageError::MissingSeparator);
+                }
+                let mut iter = val.split(|c| c == '|');
+                let region = iter.next().unwrap();
+                let region = u8::from_str(region).unwrap();
+                let spreading_factor = iter.next().unwrap();
+                let spreading_factor = u8::from_str(spreading_factor).unwrap();
+                if spreading_factor < 7 || spreading_factor > 12 {
+                    return Err(ParseMessageError::InvalidMessage);
+                }
+                Ok(Message::Configure {
+                    region,
+                    spreading_factor,
+                })
             }
             "ts" => Ok(Message::SetTimestamp {
                 timestamp: val.parse().unwrap(),
@@ -253,7 +267,10 @@ impl TryFrom<&[u8]> for Message {
                 data: Vec::<u8, 255>::from_slice(&buf[1..])
                     .map_err(|_| Error::BufferLengthNotSufficient)?,
             }),
-            0xc2 => Ok(Message::Configure { region: buf[1] }),
+            0xc2 => Ok(Message::Configure {
+                region: buf[1],
+                spreading_factor: buf[2],
+            }),
             0xc3 => Ok(Message::ReportRequest),
             0xc4 => Ok(Message::Report {
                 sn: u32::from_be_bytes(buf[1..5].try_into().map_err(|_| Error::MalformedMessage)?),
@@ -302,7 +319,7 @@ impl Message {
         let variable_part_length = match self {
             Message::SendData { data } => data.len(),
             Message::ReceiveData { data } => data.len(),
-            Message::Configure { .. } => 1,
+            Message::Configure { .. } => 2,
             Message::ReportRequest => 0,
             Message::Report { .. } => 16,
             Message::Status { .. } => 1,
@@ -330,13 +347,17 @@ impl Message {
                 res.extend_from_slice(&data)
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
-            Message::Configure { region } => {
-                res.extend_from_slice(&[0xc2, *region])
+            Message::Configure {
+                region,
+                spreading_factor,
+            } => {
+                res.extend_from_slice(&[0xc2, *region, *spreading_factor])
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::ReportRequest => res
                 .push(0xc3)
                 .map_err(|_| Error::BufferLengthNotSufficient)?,
+            // TODO move MessageType to wireless-protocol
             Message::Report {
                 sn,
                 version_data,
@@ -525,7 +546,14 @@ mod tests {
             .len()
         );
         assert_eq!(1, Message::ReportRequest.len());
-        assert_eq!(2, Message::Configure { region: 0x1 }.len());
+        assert_eq!(
+            3,
+            Message::Configure {
+                region: 0x1,
+                spreading_factor: 7
+            }
+            .len()
+        );
         assert_eq!(
             3,
             Message::SendData {
@@ -564,11 +592,14 @@ mod tests {
 
     #[test]
     fn test_single_message_decoding() {
-        let encoded = &[0x03, 0xc2, 0xff, 0x00];
+        let encoded = &[0x04, 0xc2, 0xff, 0x07, 0x00];
         let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
 
-        let expected_msg_0 = Message::Configure { region: 255u8 };
+        let expected_msg_0 = Message::Configure {
+            region: 255u8,
+            spreading_factor: 7,
+        };
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], expected_msg_0);
     }
@@ -641,8 +672,11 @@ mod tests {
 
     #[test]
     fn test_single_message_encoding_as_cobs_encoded_usb_frames() {
-        let expected = &[0x03, 0xc2, 0xff, 0x00];
-        let msg = Message::Configure { region: 255u8 };
+        let expected = &[0x04, 0xc2, 0xff, 0x07, 0x00];
+        let msg = Message::Configure {
+            region: 255u8,
+            spreading_factor: 7,
+        };
         let frames = msg.as_frames::<codec::UsbCodec>().unwrap();
 
         assert_eq!(frames.len(), 1);
@@ -690,13 +724,16 @@ mod tests {
 
     #[test]
     fn test_single_message_encoding_as_cobs_encoded_frames_for_ble() {
-        let expected = &[0x03, 0xc2, 0xff, 0x00];
-        let msg = Message::Configure { region: 255u8 };
+        let expected = &[0x04, 0xc2, 0xff, 0x0c, 0x00];
+        let msg = Message::Configure {
+            region: 255u8,
+            spreading_factor: 12,
+        };
         let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = &hex_frames[0];
-        let mut decoded = Vec::<u8, 4>::new();
+        let mut decoded = Vec::<u8, 5>::new();
         decoded.resize_default(expected.len()).unwrap();
         base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
@@ -704,7 +741,10 @@ mod tests {
 
     #[test]
     fn test_message_reader_process_bytes_hex() {
-        let msg = Message::Configure { region: 255u8 };
+        let msg = Message::Configure {
+            region: 255u8,
+            spreading_factor: 7,
+        };
         let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
         assert_eq!(hex_frames.len(), 1);
@@ -815,8 +855,23 @@ mod tests {
 
     #[test]
     fn test_message_parse_config() {
-        let msg = "config@1".parse::<Message>().unwrap();
-        assert_eq!(msg, Message::Configure { region: 1 });
+        let msg = "config@1|7".parse::<Message>().unwrap();
+        assert_eq!(
+            msg,
+            Message::Configure {
+                region: 1,
+                spreading_factor: 7
+            }
+        );
+    }
+
+    #[test]
+    fn test_message_parse_config_invalid_sf() {
+        let err = "config@1|6".parse::<Message>();
+        assert_eq!(err, Err(ParseMessageError::InvalidMessage));
+
+        let err = "config@1|13".parse::<Message>();
+        assert_eq!(err, Err(ParseMessageError::InvalidMessage));
     }
 
     #[test]

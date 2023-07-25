@@ -39,7 +39,7 @@ impl defmt::Format for HostMessage {
         match self {
             HostMessage::SendData { data } => defmt::write!(fmt, "SendData {{ data: {=[u8]:x} }}", data),
             HostMessage::ReceiveData { data } => defmt::write!(fmt, "ReceiveData {{ data: {=[u8]:x} }}", data),
-            HostMessage::Configure { region } => defmt::write!(fmt, "Configure {{ region: {=u8} }}", region),
+            HostMessage::Configure { region, spreading_factor } => defmt::write!(fmt, "Configure {{ region: {=u8}, spreading_factor: {=u8} }}", region, spreading_factor),
             HostMessage::ReportRequest => defmt::write!(fmt, "ReportRequest"),
             HostMessage::Report {
                 sn,
