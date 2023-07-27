@@ -138,6 +138,7 @@ pub enum Message {
         /// BE encoded
         version_data: Vec<u8, 9>,
         region: u8,
+        spreading_factor: u8,
         receive_queue_size: u8,
         transmit_queue_size: u8,
     },
@@ -169,9 +170,10 @@ impl fmt::Debug for Message {
                 sn,
                 version_data,
                 region,
+                spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
-            } => write!(f, "Report {{ sn: {:?}, version_data: {:02x?}, region: {:02x?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
+            } => write!(f, "Report {{ sn: {:?}, version_data: {:02x?}, region: {:02x?}, spreading_factor: {:?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size),
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
@@ -278,8 +280,9 @@ impl TryFrom<&[u8]> for Message {
                     .map_err(|_| Error::MalformedMessage)?,
 
                 region: buf[14],
-                receive_queue_size: buf[15],
-                transmit_queue_size: buf[16],
+                spreading_factor: buf[15],
+                receive_queue_size: buf[16],
+                transmit_queue_size: buf[17],
             }),
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().map_err(|_| Error::MalformedMessage)?,
@@ -321,7 +324,7 @@ impl Message {
             Message::ReceiveData { data } => data.len(),
             Message::Configure { .. } => 2,
             Message::ReportRequest => 0,
-            Message::Report { .. } => 16,
+            Message::Report { .. } => 17,
             Message::Status { .. } => 1,
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
@@ -362,6 +365,7 @@ impl Message {
                 sn,
                 version_data,
                 region,
+                spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
             } => {
@@ -371,8 +375,13 @@ impl Message {
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
                 res.extend_from_slice(&version_data)
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
-                res.extend_from_slice(&[*region, *receive_queue_size, *transmit_queue_size])
-                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&[
+                    *region,
+                    *spreading_factor,
+                    *receive_queue_size,
+                    *transmit_queue_size,
+                ])
+                .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::Status { code } => {
                 res.extend_from_slice(&[0xc5, code.clone() as u8])
@@ -532,9 +541,10 @@ mod tests {
     #[test]
     fn test_msg_len() {
         assert_eq!(
-            17,
+            18,
             Message::Report {
                 region: 0x01,
+                spreading_factor: 7,
                 sn: 12345678u32,
                 version_data: Vec::<u8, 9>::from_slice(&[
                     0x01, 0x00, 0x01, 0x00, 0x04, 0x40, 0x6e, 0xd3, 0x01,
@@ -814,6 +824,7 @@ mod tests {
             ])
             .unwrap(), // hw revision, firmware version 0.1.0, commit 4406ed3, dirty
             region: 13,
+            spreading_factor: 7,
             receive_queue_size: 17, // TODO this should track messages not read by BLE connected host yet
             transmit_queue_size: 25,
         };
