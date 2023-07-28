@@ -39,15 +39,16 @@ impl defmt::Format for HostMessage {
         match self {
             HostMessage::SendData { data } => defmt::write!(fmt, "SendData {{ data: {=[u8]:x} }}", data),
             HostMessage::ReceiveData { data } => defmt::write!(fmt, "ReceiveData {{ data: {=[u8]:x} }}", data),
-            HostMessage::Configure { region } => defmt::write!(fmt, "Configure {{ region: {=u8} }}", region),
+            HostMessage::Configure { region, spreading_factor } => defmt::write!(fmt, "Configure {{ region: {=u8}, spreading_factor: {=u8} }}", region, spreading_factor),
             HostMessage::ReportRequest => defmt::write!(fmt, "ReportRequest"),
             HostMessage::Report {
                 sn,
                 version_data,
                 region,
+                spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
-            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=[u8]:x}, region: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, receive_queue_size, transmit_queue_size),
+            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=[u8]:x}, region: {=u8}, spreading_factor: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size),
             HostMessage::Status { code } => defmt::write!(fmt, "Status({=?})", code),
             HostMessage::UpgradeFirmwareRequest => defmt::write!(fmt, "UpgradeFirmwareRequest"),
             HostMessage::SetTimestamp { timestamp } => defmt::write!(fmt, "SetTimestamp({=u64})", timestamp),
