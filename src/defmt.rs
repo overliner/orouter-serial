@@ -3,9 +3,6 @@ use defmt::Formatter;
 use crate::host::{
     codec, Error as HostError, Message as HostMessage, ParseMessageError, StatusCode,
 };
-use crate::overline::{
-    Error as OverlineError, Message as OverlineMessage, ShortTermQueueItem, StoreRecvOutcome,
-};
 
 impl defmt::Format for HostError {
     fn format(&self, fmt: Formatter<'_>) {
@@ -83,51 +80,6 @@ impl defmt::Format for StatusCode {
             StatusCode::ErrBusyLoraTransmitting => defmt::write!(fmt, "ErrBusyLoraTransmitting"),
             StatusCode::ErrMessageQueueFull => defmt::write!(fmt, "ErrMessageQueueFull"),
             StatusCode::RadioNotConfigured => defmt::write!(fmt, "RadioNotConfigured"),
-        }
-    }
-}
-
-impl defmt::Format for OverlineError {
-    fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "OverlineError::");
-        match self {
-            OverlineError::InvalidMessage => defmt::write!(fmt, "InvalidMessage"),
-            OverlineError::ShortTermQueueFull => defmt::write!(fmt, "ShortTermQueueFull"),
-            OverlineError::LongTermQueueFull => defmt::write!(fmt, "LongTermQueueFull"),
-            OverlineError::CannotReceive => defmt::write!(fmt, "CannotReceive"),
-            OverlineError::UnknownType => defmt::write!(fmt, "UnknownType"),
-        }
-    }
-}
-
-impl defmt::Format for OverlineMessage {
-    fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "Message({=[u8]:x})", self.0);
-    }
-}
-
-impl defmt::Format for ShortTermQueueItem {
-    fn format(&self, fmt: Formatter<'_>) {
-        defmt::write!(fmt, "ShortTermQueueItem {{\n");
-        defmt::write!(fmt, "\twhen: {=u16}\n", self.when);
-        defmt::write!(fmt, "\tmessage_hash: {=[u8]:x}\n", self.message_hash);
-        defmt::write!(
-            fmt,
-            "\tmessage_data_part: {=[u8]:x}\n",
-            self.message_data_part
-        );
-        defmt::write!(fmt, "}}");
-    }
-}
-
-impl defmt::Format for StoreRecvOutcome {
-    fn format(&self, fmt: Formatter<'_>) {
-        match self {
-            StoreRecvOutcome::NotSeenScheduled(s) => {
-                defmt::write!(fmt, "Outcome::NotSeenScheduled, {=u16}", s)
-            }
-            StoreRecvOutcome::Seen => defmt::write!(fmt, "Outcome::Seen"),
-            StoreRecvOutcome::Command => defmt::write!(fmt, "Outcome::Command"),
         }
     }
 }

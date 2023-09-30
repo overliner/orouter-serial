@@ -121,11 +121,11 @@ impl fmt::Display for StatusCode {
 pub enum Message {
     /// Host sending data to node instructing it to broadcast it to the wireless network
     SendData {
-        data: Vec<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>,
+        data: Vec<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Node sending data to host
     ReceiveData {
-        data: Vec<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>,
+        data: Vec<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Host is recongifuring the node
     Configure { region: u8, spreading_factor: u8 },
@@ -212,12 +212,12 @@ impl FromStr for Message {
         let val = iter.next().unwrap();
         match cmd_type {
             "send" => {
-                let mut data = Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::new();
+                let mut data = Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::new();
                 let clean_val = match val.starts_with("0x") || val.starts_with("0X") {
                     true => &val[2..],
                     false => &val,
                 };
-                if clean_val.len() / 2 > crate::overline::MAX_LORA_PAYLOAD_LENGTH {
+                if clean_val.len() / 2 > crate::MAX_LORA_PAYLOAD_LENGTH {
                     return Err(ParseMessageError::PayloadTooLong);
                 }
                 data.resize_default(clean_val.len() / 2)
@@ -697,12 +697,11 @@ mod tests {
 
     #[test]
     fn test_max_len_data_message_encoding() {
-        let mut arr = [0u8; crate::overline::MAX_LORA_PAYLOAD_LENGTH];
+        let mut arr = [0u8; crate::MAX_LORA_PAYLOAD_LENGTH];
         thread_rng().try_fill(&mut arr[..]).unwrap();
 
         let msg = Message::SendData {
-            data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr)
-                .unwrap(),
+            data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr).unwrap(),
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 2 frames
@@ -769,12 +768,11 @@ mod tests {
 
     #[test]
     fn test_max_message_length_as_cobs_encoded_frames_for_ble() {
-        let mut arr = [0u8; crate::overline::MAX_LORA_PAYLOAD_LENGTH];
+        let mut arr = [0u8; crate::MAX_LORA_PAYLOAD_LENGTH];
         thread_rng().try_fill(&mut arr[..]).unwrap();
 
         let msg = Message::SendData {
-            data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr)
-                .unwrap(),
+            data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&arr).unwrap(),
         };
 
         // msg get encoded to more than MaxSerialFrameLength so we should get 5 frames
@@ -845,10 +843,8 @@ mod tests {
         assert_eq!(
             msg,
             Message::SendData {
-                data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[
-                    0xaa, 0xbb
-                ])
-                .unwrap()
+                data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[0xaa, 0xbb])
+                    .unwrap()
             }
         );
 
@@ -856,10 +852,8 @@ mod tests {
         assert_eq!(
             msg,
             Message::SendData {
-                data: Vec::<u8, { crate::overline::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[
-                    0xcc, 0xdd
-                ])
-                .unwrap()
+                data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[0xcc, 0xdd])
+                    .unwrap()
             }
         );
     }

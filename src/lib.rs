@@ -4,7 +4,6 @@
 #![cfg_attr(any(not(feature = "std"), not(test)), no_std)]
 
 pub mod host;
-pub mod overline;
 
 // include defmt::Format implementations
 // we don't want them derive()d in the modules unless defmt-impl feature is set
@@ -13,3 +12,5 @@ pub mod defmt;
 
 // reexport heapless
 pub use heapless;
+
+pub(crate) const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
