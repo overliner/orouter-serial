@@ -20,13 +20,13 @@ pub mod codec;
 
 const COBS_SENTINEL: u8 = 0x00;
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
-pub const RAWIQ_DATA_LENGTH: usize = 2 * 1024; // 2048 u16s
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
 pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
 
 /// Computed as
 ///
 /// ```ignore - not a test
-/// 1+longest_message_length => (now RawIq lenght with max data)
+/// 1+longest_message_length => (now RawIq length with max data)
 /// +
 /// 1+ceil(<previous result>/254) = COBS worst overhead
 /// +
@@ -46,7 +46,7 @@ pub const fn calculate_cobs_overhead(unecoded_message_size: usize) -> usize {
         // COBS sentinel
         1
 }
-pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH);
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH + 1);
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
