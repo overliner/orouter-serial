@@ -8,3 +8,4 @@ Wraps serial communication between host and oRouter. Contains various codecs for
 - node-overline-protocol
 - RTNOrouterProtocols
 - oRouter Desktop App
+- orouter-cli-miner
