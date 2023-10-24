@@ -112,6 +112,12 @@ impl WireCodec for Rn4870Codec {
 
 pub struct UsbCodec {}
 
+impl UsbCodec {
+    pub fn get_frames_iter(data: &[u8]) -> impl Iterator<Item = &[u8]> {
+        data.chunks(MAX_USB_FRAME_LENGTH)
+    }
+}
+
 impl WireCodec for UsbCodec {
     type Frames = Vec<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>;
     type IncomingFrame = UsbSerialFrameVec;
@@ -129,6 +135,7 @@ impl WireCodec for UsbCodec {
         }
         Ok(frames)
     }
+
     fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError> {
         let mut decoded = UsbSerialFrameVec::new();
         decoded
@@ -167,6 +174,12 @@ impl WireCodec for Bgx13Codec {
 }
 
 pub struct Bt4502Codec {}
+
+impl Bt4502Codec {
+    pub fn get_frames_iter(data: &[u8]) -> impl Iterator<Item = &[u8]> {
+        data.chunks(MAX_USB_FRAME_LENGTH)
+    }
+}
 
 impl WireCodec for Bt4502Codec {
     type Frames = Vec<Bt4502SerialFrameVec, MAX_BT4502_FRAMES_COUNT>;
