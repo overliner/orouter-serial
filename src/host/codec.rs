@@ -38,7 +38,7 @@ pub trait WireCodec {
     type Frames;
     type IncomingFrame: IntoIterator<Item = u8> + AsRef<[u8]>;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError>;
+    fn get_frames(data: &[u8]) -> Result<Self::Frames, CodecError>;
     fn decode_frame(data: &[u8]) -> Result<(Self::IncomingFrame, usize), CodecError>;
 }
 
@@ -63,7 +63,7 @@ impl WireCodec for Rn4870Codec {
     type Frames = Vec<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>;
     type IncomingFrame = BleSerialFrameVec;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
+    fn get_frames(data: &[u8]) -> Result<Self::Frames, CodecError> {
         let mut hex_result = Vec::<u8, MAX_MESSAGE_LENGTH_HEX_ENCODED>::new();
         hex_result
             .resize_default(data.len() * 2)
@@ -72,7 +72,7 @@ impl WireCodec for Rn4870Codec {
 
         // wrap each chunk in a delimiter char
         let mut frames = Vec::<BleSerialFrameVec, MAX_BLE_FRAMES_COUNT>::new();
-        for chunk in hex_result.chunks_mut(MAX_BLE_FRAME_LENGTH - 2) {
+        for chunk in hex_result.chunks(MAX_BLE_FRAME_LENGTH - 2) {
             let mut frame = BleSerialFrameVec::new();
             if let Some(delim) = Self::MESSAGE_DELIMITER {
                 frame
@@ -123,9 +123,9 @@ impl WireCodec for UsbCodec {
     type IncomingFrame = UsbSerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
+    fn get_frames(data: &[u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<UsbSerialFrameVec, MAX_USB_FRAMES_COUNT>::new();
-        for chunk in data.chunks_mut(MAX_USB_FRAME_LENGTH) {
+        for chunk in data.chunks(MAX_USB_FRAME_LENGTH) {
             frames
                 .push(
                     UsbSerialFrameVec::from_slice(&chunk)
@@ -152,9 +152,9 @@ impl WireCodec for Bgx13Codec {
     type IncomingFrame = Bgx13SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
+    fn get_frames(data: &[u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<Bgx13SerialFrameVec, MAX_BGX13_FRAMES_COUNT>::new();
-        for chunk in data.chunks_mut(MAX_BGX13_MESSAGE_LENGTH) {
+        for chunk in data.chunks(MAX_BGX13_MESSAGE_LENGTH) {
             frames
                 .push(
                     Bgx13SerialFrameVec::from_slice(&chunk)
@@ -186,9 +186,9 @@ impl WireCodec for Bt4502Codec {
     type IncomingFrame = Bt4502SerialFrameVec;
     const MESSAGE_DELIMITER: Option<char> = None;
 
-    fn get_frames(data: &mut [u8]) -> Result<Self::Frames, CodecError> {
+    fn get_frames(data: &[u8]) -> Result<Self::Frames, CodecError> {
         let mut frames = Vec::<Bt4502SerialFrameVec, MAX_BT4502_FRAMES_COUNT>::new();
-        for chunk in data.chunks_mut(MAX_BT4502_MESSAGE_LENGTH) {
+        for chunk in data.chunks(MAX_BT4502_MESSAGE_LENGTH) {
             match chunk[0..4] {
                 [b'T', b'T', b'M', b':'] => {
                     frames
