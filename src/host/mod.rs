@@ -19,8 +19,8 @@ use heapless::Vec;
 pub mod codec;
 
 const COBS_SENTINEL: u8 = 0x00;
-pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
-pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
+pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 1;
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 4096; // 2048 u16s
 pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
 
 /// Computed as
@@ -437,6 +437,10 @@ impl Message {
         Ok(encoded_len + 1)
     }
 
+    pub fn into_encoded_bytes(self) -> Result<HostMessageVec, Error> {
+        self.encode()
+    }
+
     /// Splits COBS encoded self to frames for sending.
     /// Frames can be send as is over the wire, it itself is a valid host protocol packet
     pub fn as_frames<C: codec::WireCodec>(&self) -> Result<C::Frames, Error> {
@@ -632,7 +636,7 @@ mod tests {
             start = start + written + 1;
         }
 
-        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, 2>::new();
         let messages = cr
             .process_bytes::<codec::UsbCodec>(&encoded_buffer[..])
             .unwrap();
