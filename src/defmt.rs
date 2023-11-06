@@ -50,6 +50,7 @@ impl defmt::Format for HostMessage {
             HostMessage::UpgradeFirmwareRequest => defmt::write!(fmt, "UpgradeFirmwareRequest"),
             HostMessage::SetTimestamp { timestamp } => defmt::write!(fmt, "SetTimestamp({=u64})", timestamp),
             HostMessage::GetRawIq => defmt::write!(fmt, "GetRawIq"),
+            #[cfg(feature = "std")]
             HostMessage::RawIq { data } => defmt::write!(fmt, "RawIq {{ data: {=[u8]:x} }}", data)
         }
     }
