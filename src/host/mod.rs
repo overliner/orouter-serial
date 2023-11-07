@@ -22,7 +22,7 @@ const COBS_SENTINEL: u8 = 0x00;
 #[cfg(feature = "std")]
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 #[cfg(not(feature = "std"))]
-pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 1;
+pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
 pub const RAWIQ_DATA_LENGTH: usize = 2 * 16_536; // 2048 u16s
 pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
 
