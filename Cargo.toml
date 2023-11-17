@@ -1,8 +1,8 @@
 [package]
-name = "overline-protocol"
+name = "orouter-serial"
 version = "0.1.0"
 authors = ["Adam Kloboucnik <adam@klob.cz>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 
 [dependencies]
