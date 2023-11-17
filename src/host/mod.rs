@@ -19,8 +19,11 @@ use heapless::Vec;
 pub mod codec;
 
 const COBS_SENTINEL: u8 = 0x00;
+#[cfg(feature = "std")]
 pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
-pub const RAWIQ_DATA_LENGTH: usize = 2 * 2048; // 2048 u16s
+#[cfg(not(feature = "std"))]
+pub const DEFAULT_MAX_MESSAGE_QUEUE_LENGTH: usize = 3;
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 16_536; // 2048 u16s
 pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
 
 /// Computed as
@@ -46,7 +49,11 @@ pub const fn calculate_cobs_overhead(unecoded_message_size: usize) -> usize {
         // COBS sentinel
         1
 }
+
+#[cfg(feature = "std")]
 pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH + 1);
+#[cfg(not(feature = "std"))]
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(255);
 pub type HostMessageVec = Vec<u8, MAX_MESSAGE_LENGTH>;
 
 #[derive(PartialEq)]
@@ -151,9 +158,8 @@ pub enum Message {
     /// Get rawIq data
     GetRawIq,
     /// Node returns raw IQ data to host
-    RawIq {
-        data: Vec<u8, { RAWIQ_DATA_LENGTH }>,
-    },
+    #[cfg(feature = "std")]
+    RawIq { data: Vec<u8, RAWIQ_DATA_LENGTH> },
 }
 
 // this is not derived with cfg_attr(feature = "std" because we want the fields to be formatted as
@@ -178,6 +184,7 @@ impl fmt::Debug for Message {
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
             Message::GetRawIq => write!(f, "GetRawIq"),
+            #[cfg(feature = "std")]
             Message::RawIq { data } => write!(f, "RawIq {{ data: {:02x?} }}", data)
         }
     }
@@ -294,6 +301,7 @@ impl TryFrom<&[u8]> for Message {
                 ),
             }),
             0xc8 => Ok(Message::GetRawIq),
+            #[cfg(feature = "std")]
             0xc9 => Ok(Message::RawIq {
                 data: Vec::<u8, RAWIQ_DATA_LENGTH>::from_slice(&buf[1..])
                     .map_err(|_| Error::BufferLengthNotSufficient)?,
@@ -329,6 +337,7 @@ impl Message {
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
             Message::GetRawIq => 0,
+            #[cfg(feature = "std")]
             Message::RawIq { data } => data.len(),
         };
 
@@ -399,6 +408,7 @@ impl Message {
             Message::GetRawIq => res
                 .push(0xc8)
                 .map_err(|_| Error::BufferLengthNotSufficient)?,
+            #[cfg(feature = "std")]
             Message::RawIq { data } => {
                 res.push(0xc9)
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
@@ -435,6 +445,10 @@ impl Message {
         let encoded_len = enc.finalize().map_err(|_| Error::CobsEncodeError)?;
         buf[encoded_len] = COBS_SENTINEL;
         Ok(encoded_len + 1)
+    }
+
+    pub fn into_encoded_bytes(self) -> Result<HostMessageVec, Error> {
+        self.encode()
     }
 
     /// Splits COBS encoded self to frames for sending.
@@ -632,7 +646,7 @@ mod tests {
             start = start + written + 1;
         }
 
-        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
+        let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, 2>::new();
         let messages = cr
             .process_bytes::<codec::UsbCodec>(&encoded_buffer[..])
             .unwrap();
