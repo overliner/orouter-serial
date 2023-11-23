@@ -1,6 +1,10 @@
 //! This crate provides typed messages used for serial communication between host and oRouter.
 //! It also contains codecs for different serial HW used in oRouter.
 //!
+//! For underlying implementations of messages, it uses
+//! [zerocopy](https://docs.rs/zerocopy/latest/zerocopy/) library - this means, that it can be
+//! utilized in scenarions when only static allocated buffers are
+//!
 //! As a wire codec oRouter uses [COBS](https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing)
 //! encoding, specifically [cobs](https://docs.rs/cobs/0.1.4/cobs/index.html) rust crate but this
 //! is completely abstracted from user of this library.
@@ -69,6 +73,7 @@
 #![cfg_attr(any(not(feature = "std"), not(test)), no_std)]
 
 pub mod host;
+pub mod message;
 
 // include defmt::Format implementations
 // we don't want them derive()d in the modules unless defmt-impl feature is set
