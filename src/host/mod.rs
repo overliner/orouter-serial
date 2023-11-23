@@ -1,4 +1,4 @@
-//! Overline host protocol wrapping module
+//! Wrap messages
 //!
 //! Message send between host (computer, phone) connected using either USB or BLE
 //!
