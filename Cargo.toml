@@ -1,9 +1,13 @@
 [package]
 name = "orouter-serial"
+description = "Implementation of serial protocol for oRouter"
 version = "0.1.0"
-authors = ["Adam Kloboucnik <adam@klob.cz>"]
+authors = ["Overline developers dev@overline.network"]
 edition = "2021"
 license = "MIT"
+repository = "https://github.com/overliner/orouter-serial"
+readme = "README.md"
+
 
 [dependencies]
 base16 = { version = "0.2", default-features = false }
@@ -23,3 +27,6 @@ std = []
 
 [[example]]
 name = "read"
+
+[[example]]
+name = "write"
