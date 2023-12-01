@@ -24,6 +24,48 @@ impl From<corncobs::CobsError> for Error {
     }
 }
 
+/// Represents serial message
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum SerialMessage<'a> {
+    SendData(&'a SendData),
+    Configure(Configure),
+    ReportRequest(ReportRequest),
+    UpgradeFirmwareRequest(UpgradeFirmwareRequest),
+    SetTimestamp(SetTimestamp),
+    GetRawIq(GetRawIq),
+    ReceiveData(ReceiveData),
+    Report(Report),
+    Status(&'a Status),
+    RawIq(RawIq),
+}
+
+impl<'a> SerialMessage<'a> {
+    /// Tries to parse serial message from a slice of bytes - which is expected to be a COBS
+    /// encoded representation of message (including the COBS separator)
+    pub fn parse(payload: &'a mut [u8]) -> Result<Self, Error> {
+        let len = payload.len();
+        let (typ, decoded_range) = decode_message_type(&mut payload[..], 0..len)?;
+        match typ {
+            MessageType::SendData => {
+                let msg: &SendData = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::SendData(msg))
+            }
+            MessageType::Configure => todo!(),
+            MessageType::ReportRequest => todo!(),
+            MessageType::UpgradeFirmwareRequest => todo!(),
+            MessageType::SetTimestamp => todo!(),
+            MessageType::GetRawIq => todo!(),
+            MessageType::ReceiveData => todo!(),
+            MessageType::Report => todo!(),
+            MessageType::Status => {
+                let msg: &Status = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::Status(msg))
+            }
+            MessageType::RawIq => todo!(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum MessageType {
@@ -204,6 +246,7 @@ impl Status {
 }
 
 #[derive(FromZeroes, FromBytes, AsBytes)]
+#[cfg_attr(feature = "std", derive(Debug))]
 #[repr(C)]
 pub struct RawIq {
     pub data: [u8; 16_536],
@@ -426,5 +469,36 @@ mod tests {
             "\nleft  = {:02x?}\nright = {:02x?}",
             ORIGINAL_DATA, output_buf
         );
+    }
+
+    #[test]
+    #[ignore = "needs correct COBS encoded SendData in buf"]
+    pub fn test_serial_message_parse_send_data() {
+        let mut buf = [0u8; 257];
+        buf[0..7].copy_from_slice(&[0x06, 0xc0, 0x03, 0xc0, 0xff, 0xee, 0x00]);
+
+        let msg = SerialMessage::parse(&mut buf[0..256]).unwrap();
+        match msg {
+            SerialMessage::SendData(data) => {
+                assert_eq!(data.data(), &[0xc0, 0xff, 0xee]);
+            }
+            _ => assert!(false, "invalid variant, expected SendData, got {msg:?}"),
+        }
+    }
+
+    #[test]
+    pub fn test_serial_message_parse_status() {
+        let mut buf = [0u8; 20];
+        buf[0..4].copy_from_slice(&[0x03, 0xc5, 0x02, 0x00]);
+        let msg = SerialMessage::parse(&mut buf[0..4]).unwrap();
+        match msg {
+            SerialMessage::Status(status) => {
+                assert_eq!(
+                    status.code().unwrap(),
+                    crate::host::StatusCode::CommandReceived
+                )
+            }
+            _ => assert!(false, "invalid variant, expected Status, got {msg:?}"),
+        }
     }
 }
