@@ -28,15 +28,15 @@ impl From<corncobs::CobsError> for Error {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum SerialMessage<'a> {
     SendData(&'a SendData),
-    Configure(Configure),
-    ReportRequest(ReportRequest),
-    UpgradeFirmwareRequest(UpgradeFirmwareRequest),
-    SetTimestamp(SetTimestamp),
-    GetRawIq(GetRawIq),
-    ReceiveData(ReceiveData),
-    Report(Report),
+    Configure(&'a Configure),
+    ReportRequest(&'a ReportRequest),
+    UpgradeFirmwareRequest(&'a UpgradeFirmwareRequest),
+    SetTimestamp(&'a SetTimestamp),
+    GetRawIq(&'a GetRawIq),
+    ReceiveData(&'a ReceiveData),
+    Report(&'a Report),
     Status(&'a Status),
-    RawIq(RawIq),
+    RawIq(&'a RawIq),
 }
 
 impl<'a> SerialMessage<'a> {
@@ -50,18 +50,42 @@ impl<'a> SerialMessage<'a> {
                 let msg: &SendData = decode_serial_message(&payload[decoded_range])?;
                 Ok(Self::SendData(msg))
             }
-            MessageType::Configure => todo!(),
-            MessageType::ReportRequest => todo!(),
-            MessageType::UpgradeFirmwareRequest => todo!(),
-            MessageType::SetTimestamp => todo!(),
-            MessageType::GetRawIq => todo!(),
-            MessageType::ReceiveData => todo!(),
-            MessageType::Report => todo!(),
+            MessageType::Configure => {
+                let msg: &Configure = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::Configure(msg))
+            }
+            MessageType::ReportRequest => {
+                let msg: &ReportRequest = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::ReportRequest(msg))
+            }
+            MessageType::UpgradeFirmwareRequest => {
+                let msg: &UpgradeFirmwareRequest = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::UpgradeFirmwareRequest(msg))
+            }
+            MessageType::SetTimestamp => {
+                let msg: &SetTimestamp = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::SetTimestamp(msg))
+            }
+            MessageType::GetRawIq => {
+                let msg: &GetRawIq = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::GetRawIq(msg))
+            }
+            MessageType::ReceiveData => {
+                let msg: &ReceiveData = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::ReceiveData(msg))
+            }
+            MessageType::Report => {
+                let msg: &Report = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::Report(msg))
+            }
             MessageType::Status => {
                 let msg: &Status = decode_serial_message(&payload[decoded_range])?;
                 Ok(Self::Status(msg))
             }
-            MessageType::RawIq => todo!(),
+            MessageType::RawIq => {
+                let msg: &RawIq = decode_serial_message(&payload[decoded_range])?;
+                Ok(Self::RawIq(msg))
+            }
         }
     }
 }
