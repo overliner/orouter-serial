@@ -472,12 +472,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs correct COBS encoded SendData in buf"]
     pub fn test_serial_message_parse_send_data() {
-        let mut buf = [0u8; 257];
-        buf[0..7].copy_from_slice(&[0x06, 0xc0, 0x03, 0xc0, 0xff, 0xee, 0x00]);
+        // manually create COBS serialized a SendData { data: [0xc0, 0xff, 0xee] } message:
+        let mut buf = [1u8; 259];
+        buf[0..6].copy_from_slice(&[0x06, 0xc0, 0x03, 0xc0, 0xff, 0xee]);
+        buf[258] = 0x00;
 
-        let msg = SerialMessage::parse(&mut buf[0..256]).unwrap();
+        let msg = SerialMessage::parse(&mut buf[..]).unwrap();
         match msg {
             SerialMessage::SendData(data) => {
                 assert_eq!(data.data(), &[0xc0, 0xff, 0xee]);
