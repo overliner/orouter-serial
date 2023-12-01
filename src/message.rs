@@ -1,3 +1,7 @@
+//! Serial messages defitions
+//!
+//! Messages are of two types - depending on direction they are sent. One type goes from host to
+//! orouter and the other vice versa.
 use core::{convert::TryFrom, ops::Range};
 
 use zerocopy::{AsBytes, FromBytes, FromZeroes, Ref};
@@ -205,8 +209,17 @@ pub struct RawIq {
     pub data: [u8; 16_536],
 }
 
-/// Decode a MessageType from buffer in slice of range_encoded
-/// returns decoded message type and new range where message payload is
+/// Decode a MessageType from buffer in slice of range_encoded returns decoded message type and new
+/// range in provided slice where the decoded message payload is newly - this is because cobs
+/// decoding is happenning in place to save memory
+///
+/// ```rust
+/// use orouter_serial::message::*;
+/// let mut buf = [0x03, 0xc5, 0x02, 0x00];
+/// let (typ, decoded_range) = decode_message_type(&mut buf, 0..3).unwrap();
+/// assert_eq!(MessageType::Status, typ);
+/// assert_eq!(1..2, decoded_range);
+/// ```
 pub fn decode_message_type(
     buf: &mut [u8],
     range_encoded: Range<usize>,
@@ -225,8 +238,9 @@ pub fn decode_message_type(
 
 /// Returns typed ref to a message payload of type `M` e.g.
 ///
-/// ```rust,ignore
-/// let message: &Status = decode_serial_message(...);
+/// ```rust
+/// use orouter_serial::message::*;
+/// let message: &Status = decode_serial_message(&[0x01]).unwrap();
 /// ```
 pub fn decode_serial_message<M: FromBytes>(payload: &[u8]) -> Result<&M, Error> {
     Ref::<_, M>::new(payload)
@@ -298,6 +312,10 @@ mod tests {
 
         let sd = SendData::ref_from_prefix(&buf[..]).unwrap();
         assert_eq!(&sd.data(), &[0xc0, 0xff, 0xee]);
+
+        let mut buf = [0u8; 257];
+        let rr = ReportRequest::new_zeroed();
+        rr.write_to(&mut buf[0..0]).ok_or(()).unwrap();
     }
 
     #[test]
