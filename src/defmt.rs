@@ -15,6 +15,7 @@ impl defmt::Format for HostError {
             HostError::CannotAppendCommand => defmt::write!(fmt, "CannotAppendCommand"),
             HostError::CodecError(e) => defmt::write!(fmt, "CodecError({:?})", e),
             HostError::CobsEncodeError => defmt::write!(fmt, "CobsEncodeError"),
+            HostError::CannotParseConfigNetwork => defmt::write!(fmt, "CannotParseConfigNetwork"),
         }
     }
 }
@@ -36,7 +37,7 @@ impl defmt::Format for HostMessage {
         match self {
             HostMessage::SendData { data } => defmt::write!(fmt, "SendData {{ data: {=[u8]:x} }}", data),
             HostMessage::ReceiveData { data } => defmt::write!(fmt, "ReceiveData {{ data: {=[u8]:x} }}", data),
-            HostMessage::Configure { region, spreading_factor } => defmt::write!(fmt, "Configure {{ region: {=u8}, spreading_factor: {=u8} }}", region, spreading_factor),
+            HostMessage::Configure { region, spreading_factor, network } => defmt::write!(fmt, "Configure {{ region: {=u8}, spreading_factor: {=u8}, network: {=[u8]:x} }}", region, spreading_factor, network.to_be_bytes()),
             HostMessage::ReportRequest => defmt::write!(fmt, "ReportRequest"),
             HostMessage::Report {
                 sn,
@@ -45,7 +46,8 @@ impl defmt::Format for HostMessage {
                 spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
-            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=[u8]:x}, region: {=u8}, spreading_factor: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8} }}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size),
+                network,
+            } => defmt::write!(fmt, "Report {{ sn: {=u32}, version_data: {=[u8]:x}, region: {=u8}, spreading_factor: {=u8}, receive_queue_size: {=u8}, transmit_queue_size: {=u8}, network: {=[u8]:x} }}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size, network.to_be_bytes()),
             HostMessage::Status { code } => defmt::write!(fmt, "Status({=?})", code),
             HostMessage::UpgradeFirmwareRequest => defmt::write!(fmt, "UpgradeFirmwareRequest"),
             HostMessage::SetTimestamp { timestamp } => defmt::write!(fmt, "SetTimestamp({=u64})", timestamp),
@@ -65,6 +67,10 @@ impl defmt::Format for ParseMessageError {
             ParseMessageError::InvalidHex(_) => defmt::write!(fmt, "InvalidHex"),
             ParseMessageError::InvalidPayloadLength => defmt::write!(fmt, "InvalidPayloadLength"),
             ParseMessageError::PayloadTooLong => defmt::write!(fmt, "PayloadTooLong"),
+            ParseMessageError::InvalidHexConfigNetwork => {
+                defmt::write!(fmt, "InvalidHexConfigNetwork")
+            }
+            ParseMessageError::MissingConfigNetwork => defmt::write!(fmt, "MissingConfigNetwork"),
         }
     }
 }
