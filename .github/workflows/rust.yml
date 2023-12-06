@@ -50,6 +50,10 @@ jobs:
     - name: test orouter-serial
       run: cargo test
 
+    - name: test without std
+      run: cargo build --no-default-features --features=defmt-impl
+
+
   notify_failure:
       needs: [build-and-test]
       if: ${{ failure() }}

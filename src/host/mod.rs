@@ -66,6 +66,7 @@ pub enum Error {
     CannotAppendCommand,
     CodecError(codec::CodecError),
     CobsEncodeError,
+    CannotParseConfigNetwork,
 }
 
 impl From<codec::CodecError> for Error {
@@ -135,7 +136,11 @@ pub enum Message {
         data: Vec<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>,
     },
     /// Host is recongifuring the node
-    Configure { region: u8, spreading_factor: u8 },
+    Configure {
+        region: u8,
+        spreading_factor: u8,
+        network: u16,
+    },
     /// Host requesting the node status
     ReportRequest,
     /// Node reporting information to host
@@ -148,6 +153,7 @@ pub enum Message {
         spreading_factor: u8,
         receive_queue_size: u8,
         transmit_queue_size: u8,
+        network: u16,
     },
     /// Node reporting some error state to host
     Status { code: StatusCode },
@@ -170,7 +176,7 @@ impl fmt::Debug for Message {
         match self {
             Message::SendData { data } => write!(f, "SendData {{ data: {:02x?} }}", data),
             Message::ReceiveData { data } => write!(f, "ReceiveData {{ data: {:02x?} }}", data),
-            Message::Configure { region, spreading_factor } => write!(f, "Configure {{ region: {:02x?}, spreading_factor: {:?} }}", region, spreading_factor),
+            Message::Configure { region, spreading_factor, network } => write!(f, "Configure {{ region: {:02x?}, spreading_factor: {:?}, network: {:02x?} }}", region, spreading_factor, network.to_be_bytes()),
             Message::ReportRequest => write!(f, "ReportRequest"),
             Message::Report {
                 sn,
@@ -179,7 +185,8 @@ impl fmt::Debug for Message {
                 spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
-            } => write!(f, "Report {{ sn: {:?}, version_data: {:02x?}, region: {:02x?}, spreading_factor: {:?}, receive_queue_size: {:?}, transmit_queue_size: {:?} }}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size),
+                network,
+            } => write!(f, "Report {{ sn: {:?}, version_data: {:02x?}, region: {:02x?}, spreading_factor: {:?}, receive_queue_size: {:?}, transmit_queue_size: {:?}, network: {:02x?}", sn, version_data, region, spreading_factor, receive_queue_size, transmit_queue_size, network.to_be_bytes()),
             Message::Status { code } => write!(f, "Status({:?})", code),
             Message::UpgradeFirmwareRequest => write!(f, "UpgradeFirmwareRequest"),
             Message::SetTimestamp { timestamp } => write!(f, "SetTimestamp({:?})", timestamp),
@@ -195,8 +202,10 @@ pub enum ParseMessageError {
     MissingSeparator,
     InvalidMessage,
     InvalidHex(base16::DecodeError),
+    InvalidHexConfigNetwork,
     InvalidPayloadLength,
     PayloadTooLong,
+    MissingConfigNetwork,
 }
 
 impl From<base16::DecodeError> for ParseMessageError {
@@ -248,9 +257,13 @@ impl FromStr for Message {
                 if spreading_factor < 7 || spreading_factor > 12 {
                     return Err(ParseMessageError::InvalidMessage);
                 }
+                let network = iter.next().ok_or(ParseMessageError::MissingConfigNetwork)?;
+                let network = u16::from_str_radix(network, 16)
+                    .map_err(|_| ParseMessageError::InvalidHexConfigNetwork)?;
                 Ok(Message::Configure {
                     region,
                     spreading_factor,
+                    network,
                 })
             }
             "ts" => Ok(Message::SetTimestamp {
@@ -279,6 +292,11 @@ impl TryFrom<&[u8]> for Message {
             0xc2 => Ok(Message::Configure {
                 region: buf[1],
                 spreading_factor: buf[2],
+                network: u16::from_be_bytes(
+                    buf[3..5]
+                        .try_into()
+                        .map_err(|_| Self::Error::CannotParseConfigNetwork)?,
+                ),
             }),
             0xc3 => Ok(Message::ReportRequest),
             0xc4 => Ok(Message::Report {
@@ -290,6 +308,11 @@ impl TryFrom<&[u8]> for Message {
                 spreading_factor: buf[15],
                 receive_queue_size: buf[16],
                 transmit_queue_size: buf[17],
+                network: u16::from_be_bytes(
+                    buf[18..20]
+                        .try_into()
+                        .map_err(|_| Error::MalformedMessage)?,
+                ),
             }),
             0xc5 => Ok(Message::Status {
                 code: buf[1].try_into().map_err(|_| Error::MalformedMessage)?,
@@ -330,9 +353,9 @@ impl Message {
         let variable_part_length = match self {
             Message::SendData { data } => data.len(),
             Message::ReceiveData { data } => data.len(),
-            Message::Configure { .. } => 2,
+            Message::Configure { .. } => 4,
             Message::ReportRequest => 0,
-            Message::Report { .. } => 17,
+            Message::Report { .. } => 19,
             Message::Status { .. } => 1,
             Message::UpgradeFirmwareRequest => 0,
             Message::SetTimestamp { .. } => 8, // 1x u64 timestamp
@@ -362,8 +385,11 @@ impl Message {
             Message::Configure {
                 region,
                 spreading_factor,
+                network,
             } => {
                 res.extend_from_slice(&[0xc2, *region, *spreading_factor])
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&network.to_be_bytes())
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::ReportRequest => res
@@ -377,6 +403,7 @@ impl Message {
                 spreading_factor,
                 receive_queue_size,
                 transmit_queue_size,
+                network,
             } => {
                 res.push(0xc4)
                     .map_err(|_| Error::BufferLengthNotSufficient)?;
@@ -391,6 +418,8 @@ impl Message {
                     *transmit_queue_size,
                 ])
                 .map_err(|_| Error::BufferLengthNotSufficient)?;
+                res.extend_from_slice(&network.to_be_bytes())
+                    .map_err(|_| Error::BufferLengthNotSufficient)?;
             }
             Message::Status { code } => {
                 res.extend_from_slice(&[0xc5, code.clone() as u8])
@@ -555,7 +584,7 @@ mod tests {
     #[test]
     fn test_msg_len() {
         assert_eq!(
-            18,
+            20,
             Message::Report {
                 region: 0x01,
                 spreading_factor: 7,
@@ -565,16 +594,18 @@ mod tests {
                 ])
                 .unwrap(), // hw revision, firmware version 0.1.0, commit 4406ed3, dirty
                 receive_queue_size: 1,
-                transmit_queue_size: 3
+                transmit_queue_size: 3,
+                network: u16::from_be_bytes([0xaa, 0xcc])
             }
             .len()
         );
         assert_eq!(1, Message::ReportRequest.len());
         assert_eq!(
-            3,
+            5,
             Message::Configure {
                 region: 0x1,
-                spreading_factor: 7
+                spreading_factor: 7,
+                network: u16::from_be_bytes([0xaa, 0xcc])
             }
             .len()
         );
@@ -616,13 +647,14 @@ mod tests {
 
     #[test]
     fn test_single_message_decoding() {
-        let encoded = &[0x04, 0xc2, 0xff, 0x07, 0x00];
+        let encoded = &[0x06, 0xc2, 0xff, 0x07, 0xaa, 0xcc, 0x00];
         let mut cr = MessageReader::<MAX_MESSAGE_LENGTH, DEFAULT_MAX_MESSAGE_QUEUE_LENGTH>::new();
         let messages = cr.process_bytes::<codec::UsbCodec>(&encoded[..]).unwrap();
 
         let expected_msg_0 = Message::Configure {
             region: 255u8,
             spreading_factor: 7,
+            network: u16::from_be_bytes([0xaa, 0xcc]),
         };
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0], expected_msg_0);
@@ -696,10 +728,11 @@ mod tests {
 
     #[test]
     fn test_single_message_encoding_as_cobs_encoded_usb_frames() {
-        let expected = &[0x04, 0xc2, 0xff, 0x07, 0x00];
+        let expected = &[0x06, 0xc2, 0xff, 0x07, 0xaa, 0xcc, 0x00];
         let msg = Message::Configure {
             region: 255u8,
             spreading_factor: 7,
+            network: u16::from_be_bytes([0xaa, 0xcc]),
         };
         let frames = msg.as_frames::<codec::UsbCodec>().unwrap();
 
@@ -747,16 +780,17 @@ mod tests {
 
     #[test]
     fn test_single_message_encoding_as_cobs_encoded_frames_for_ble() {
-        let expected = &[0x04, 0xc2, 0xff, 0x0c, 0x00];
+        let expected = &[0x06, 0xc2, 0xff, 0x0c, 0xaa, 0xcc, 0x00];
         let msg = Message::Configure {
             region: 255u8,
             spreading_factor: 12,
+            network: u16::from_be_bytes([0xaa, 0xcc]),
         };
         let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
         assert_eq!(hex_frames.len(), 1);
         let hex_frame = &hex_frames[0];
-        let mut decoded = Vec::<u8, 5>::new();
+        let mut decoded = Vec::<u8, 7>::new();
         decoded.resize_default(expected.len()).unwrap();
         base16::decode_slice(&hex_frame.clone()[1..hex_frame.len() - 1], &mut decoded).unwrap();
         assert_eq!(decoded, expected);
@@ -767,6 +801,7 @@ mod tests {
         let msg = Message::Configure {
             region: 255u8,
             spreading_factor: 7,
+            network: u16::from_be_bytes([0xaa, 0xcc]),
         };
         let hex_frames = msg.as_frames::<codec::Rn4870Codec>().unwrap();
 
@@ -839,6 +874,7 @@ mod tests {
             spreading_factor: 7,
             receive_queue_size: 17, // TODO this should track messages not read by BLE connected host yet
             transmit_queue_size: 25,
+            network: u16::from_be_bytes([0xaa, 0xcc]),
         };
         let result_len = msg.encode_to_slice(&mut result[..]).unwrap();
         println!("{:02x?}", &result[0..result_len]);
@@ -874,23 +910,30 @@ mod tests {
 
     #[test]
     fn test_message_parse_config() {
-        let msg = "config@1|7".parse::<Message>().unwrap();
+        let msg = "config@1|7|aacc".parse::<Message>().unwrap();
         assert_eq!(
             msg,
             Message::Configure {
                 region: 1,
-                spreading_factor: 7
+                spreading_factor: 7,
+                network: u16::from_be_bytes([0xaa, 0xcc])
             }
         );
     }
 
     #[test]
     fn test_message_parse_config_invalid_sf() {
-        let err = "config@1|6".parse::<Message>();
+        let err = "config@1|6|aacc".parse::<Message>();
         assert_eq!(err, Err(ParseMessageError::InvalidMessage));
 
-        let err = "config@1|13".parse::<Message>();
+        let err = "config@1|13|ccaa".parse::<Message>();
         assert_eq!(err, Err(ParseMessageError::InvalidMessage));
+    }
+
+    #[test]
+    #[should_panic(expected = "MissingConfigNetwork")]
+    fn test_message_parse_config_missing_network() {
+        "config@1|12".parse::<Message>().unwrap();
     }
 
     #[test]
