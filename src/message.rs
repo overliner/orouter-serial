@@ -185,6 +185,7 @@ impl SendData {
 pub struct Configure {
     pub region: u8,
     pub spreading_factor: u8,
+    pub network: [u8; 2],
 }
 
 #[derive(FromZeroes, FromBytes, AsBytes, PartialEq)]
