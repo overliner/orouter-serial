@@ -252,7 +252,12 @@ impl ReceiveData {
 pub struct Report {
     pub sn: u32,
     pub version_data: [u8; 9],
-    __unused_padding: [u8; 3],
+    pub region: u8,
+    pub spreading_factor: u8,
+    pub receive_queue_size: u8,
+    pub transmit_queue_size: u8,
+    pub network: [u8; 2],
+    __unused_padding: [u8; 1],
 }
 
 #[derive(FromBytes, FromZeroes, AsBytes, PartialEq, Eq)]
