@@ -24,69 +24,53 @@ impl From<corncobs::CobsError> for Error {
     }
 }
 
-/// Represents serial message
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum SerialMessage<'a> {
-    SendData(&'a SendData),
-    Configure(&'a Configure),
-    ReportRequest(&'a ReportRequest),
-    UpgradeFirmwareRequest(&'a UpgradeFirmwareRequest),
-    SetTimestamp(&'a SetTimestamp),
-    GetRawIq(&'a GetRawIq),
-    ReceiveData(&'a ReceiveData),
-    Report(&'a Report),
-    Status(&'a Status),
-    RawIq(&'a RawIq),
+pub struct SerialMessage<'a, M: AsBytes + FromBytes + FromZeroes> {
+    pub typ: MessageType,
+    pub payload: &'a M,
 }
 
-impl<'a> SerialMessage<'a> {
-    /// Tries to parse serial message from a slice of bytes - which is expected to be a COBS
-    /// encoded representation of message (including the COBS separator)
-    pub fn parse(payload: &'a mut [u8]) -> Result<Self, Error> {
-        let len = payload.len();
-        let (typ, decoded_range) = decode_message_type(&mut payload[..], 0..len)?;
-        match typ {
-            MessageType::SendData => {
-                let msg: &SendData = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::SendData(msg))
-            }
-            MessageType::Configure => {
-                let msg: &Configure = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::Configure(msg))
-            }
-            MessageType::ReportRequest => {
-                let msg: &ReportRequest = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::ReportRequest(msg))
-            }
-            MessageType::UpgradeFirmwareRequest => {
-                let msg: &UpgradeFirmwareRequest = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::UpgradeFirmwareRequest(msg))
-            }
-            MessageType::SetTimestamp => {
-                let msg: &SetTimestamp = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::SetTimestamp(msg))
-            }
-            MessageType::GetRawIq => {
-                let msg: &GetRawIq = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::GetRawIq(msg))
-            }
-            MessageType::ReceiveData => {
-                let msg: &ReceiveData = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::ReceiveData(msg))
-            }
-            MessageType::Report => {
-                let msg: &Report = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::Report(msg))
-            }
-            MessageType::Status => {
-                let msg: &Status = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::Status(msg))
-            }
-            MessageType::RawIq => {
-                let msg: &RawIq = decode_serial_message(&payload[decoded_range])?;
-                Ok(Self::RawIq(msg))
-            }
-        }
+impl<'a, M: AsBytes + FromBytes + FromZeroes> SerialMessage<'a, M> {
+    /// Creates a SerialMessage instance
+    ///
+    /// ```rust
+    /// use zerocopy::FromZeroes;
+    /// use orouter_serial::{host::StatusCode, message::*};
+    /// let msg = SerialMessage::new(MessageType::Status, &Status {
+    ///     code: StatusCode::FrameReceived as u8
+    /// });
+    ///
+    /// let mut send_data = SendData::new_zeroed();
+    /// send_data.put_data(&[0xc0, 0xff, 0xee]);
+    /// let msg2 = SerialMessage::new(MessageType::SendData, &send_data);
+    /// ```
+    pub fn new(typ: MessageType, payload: &'a M) -> Self {
+        // FIXME check if payload and typ match
+        Self { typ, payload }
+    }
+
+    /// Tries to parse SerialMessage from a buffer of bytes
+    ///
+    /// ```rust
+    /// use orouter_serial::message::*;
+    /// let mut receive_buffer = [0x03, 0xc5, 0x01, 0x00];
+    /// let message = SerialMessage::parse(&mut receive_buffer[..]).unwrap();
+    /// assert_eq!(MessageType::Status, message.typ);
+    /// let status: &Status = message.payload;
+    /// assert_eq!(orouter_serial::host::StatusCode::FrameReceived, status.code().unwrap());
+    /// ```
+    pub fn parse(bytes: &'a mut [u8]) -> Result<SerialMessage<'a, M>, Error> {
+        let len = bytes.len();
+        let (typ, decoded_range) = decode_message_type(bytes, 0..len)?;
+        let payload = decode_serial_message(&bytes[decoded_range])?;
+        Ok(SerialMessage { typ, payload })
+    }
+
+    /// Serializes message into a provided buffer and returns iterator with bytes of encoded message
+    ///
+    /// if `buf` doesn't have needed length for encoding of the mesage it returns error
+    pub fn encode_iter(self, buf: &'a mut [u8]) -> Result<impl Iterator<Item = u8> + 'a, Error> {
+        encoded_serial_message_as_iter(self.typ.clone(), self.payload, buf)
     }
 }
 
@@ -265,7 +249,7 @@ pub struct Report {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[repr(C)]
 pub struct Status {
-    code: u8,
+    pub code: u8,
 }
 
 impl Status {
@@ -285,15 +269,7 @@ pub struct RawIq {
 /// Decode a MessageType from buffer in slice of range_encoded returns decoded message type and new
 /// range in provided slice where the decoded message payload is newly - this is because cobs
 /// decoding is happenning in place to save memory
-///
-/// ```rust
-/// use orouter_serial::message::*;
-/// let mut buf = [0x03, 0xc5, 0x02, 0x00];
-/// let (typ, decoded_range) = decode_message_type(&mut buf, 0..3).unwrap();
-/// assert_eq!(MessageType::Status, typ);
-/// assert_eq!(1..2, decoded_range);
-/// ```
-pub fn decode_message_type(
+pub(crate) fn decode_message_type(
     buf: &mut [u8],
     range_encoded: Range<usize>,
 ) -> Result<(MessageType, Range<usize>), Error> {
@@ -309,13 +285,7 @@ pub fn decode_message_type(
     Ok((typ, original_start + 1..original_start + decoded_len))
 }
 
-/// Returns typed ref to a message payload of type `M` e.g.
-///
-/// ```rust
-/// use orouter_serial::message::*;
-/// let message: &Status = decode_serial_message(&[0x01]).unwrap();
-/// ```
-pub fn decode_serial_message<M: FromBytes>(payload: &[u8]) -> Result<&M, Error> {
+fn decode_serial_message<M: FromBytes>(payload: &[u8]) -> Result<&M, Error> {
     Ref::<_, M>::new(payload)
         .ok_or(Error::CantCreatePayloadRef)
         .map(|r| r.into_ref())
@@ -353,10 +323,7 @@ pub fn get_possible_cobs_message_ranges<'a>(
     })
 }
 
-/// Serializes message into a provided buffer and returns iterator with bytes of encoded message
-///
-/// if `buf` doesn't have needed length for encoding of the mesage it returns error
-pub fn encoded_serial_message_as_iter<'a, M: AsBytes>(
+fn encoded_serial_message_as_iter<'a, M: AsBytes>(
     typ: MessageType,
     serial_message: &M,
     buf: &'a mut [u8],
@@ -509,8 +476,9 @@ mod tests {
         buf[258] = 0x00;
 
         let msg = SerialMessage::parse(&mut buf[..]).unwrap();
-        match msg {
-            SerialMessage::SendData(data) => {
+        match msg.typ {
+            MessageType::SendData => {
+                let data: &SendData = msg.payload;
                 assert_eq!(data.data(), &[0xc0, 0xff, 0xee]);
             }
             _ => assert!(false, "invalid variant, expected SendData, got {msg:?}"),
@@ -522,8 +490,9 @@ mod tests {
         let mut buf = [0u8; 20];
         buf[0..4].copy_from_slice(&[0x03, 0xc5, 0x02, 0x00]);
         let msg = SerialMessage::parse(&mut buf[0..4]).unwrap();
-        match msg {
-            SerialMessage::Status(status) => {
+        match msg.typ {
+            MessageType::Status => {
+                let status: &Status = msg.payload;
                 assert_eq!(
                     status.code().unwrap(),
                     crate::host::StatusCode::CommandReceived
@@ -531,5 +500,21 @@ mod tests {
             }
             _ => assert!(false, "invalid variant, expected Status, got {msg:?}"),
         }
+    }
+
+    #[test]
+    pub fn test_serial_message_status_encode_iter() {
+        let mut output_buf = [0u8, 10];
+        let status = Status {
+            code: crate::host::StatusCode::FrameReceived as u8,
+        };
+        let msg = SerialMessage::new(MessageType::Status, &status);
+
+        let serialized = msg
+            .encode_iter(&mut output_buf)
+            .unwrap()
+            .collect::<Vec<u8>>();
+
+        assert_eq!(serialized.as_slice(), &[0x03, 0xc5, 0x01, 0x00]);
     }
 }
