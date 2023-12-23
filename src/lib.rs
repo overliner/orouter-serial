@@ -69,6 +69,7 @@
 #![cfg_attr(any(not(feature = "std"), not(test)), no_std)]
 
 pub mod host;
+pub mod message;
 
 // include defmt::Format implementations
 // we don't want them derive()d in the modules unless defmt-impl feature is set

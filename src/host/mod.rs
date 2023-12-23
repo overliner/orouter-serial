@@ -15,6 +15,7 @@ use core::fmt;
 #[cfg(feature = "std")]
 use core::str::FromStr;
 use heapless::Vec;
+use serde::{Deserialize, Serialize};
 
 pub mod codec;
 
@@ -75,7 +76,7 @@ impl From<codec::CodecError> for Error {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 #[repr(u8)]
 pub enum StatusCode {
