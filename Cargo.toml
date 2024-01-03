@@ -17,6 +17,7 @@ heapless = { version = "0.7" }
 postcard = { version = "1.0.8", default-features = false, features = ["use-defmt"] }
 rand = { version = "0.7", default-features = false, features = ["small_rng"]}
 serde = { version = "1.0.193", default-features = false, features = ["derive"] }
+serde-big-array = "0.5.1"
 
 [dev-dependencies]
 rand = { version = "0.7" }

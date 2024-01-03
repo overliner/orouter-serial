@@ -82,7 +82,8 @@ pub use heapless;
 
 pub(crate) const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
 
-pub const RAWIQ_DATA_LENGTH: usize = 2 * 16_536; // 2048 u16s
+pub const RAWIQ_SAMPLE_COUNT: usize = 16_536;
+pub const RAWIQ_DATA_LENGTH: usize = 2 * RAWIQ_SAMPLE_COUNT;
 pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
 
 #[cfg(feature = "std")]

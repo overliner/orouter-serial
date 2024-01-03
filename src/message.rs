@@ -8,6 +8,7 @@ use core::fmt;
 use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum Error {
@@ -241,8 +242,8 @@ impl fmt::Display for StatusCode {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct RawIq {
-    // FIXME 16_536
-    pub data: [u16; 32],
+    #[serde(with = "BigArray")]
+    pub data: [u16; crate::RAWIQ_SAMPLE_COUNT],
 }
 
 /// Find all possible range in buffer which represent COBS encoded message
