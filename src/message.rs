@@ -123,7 +123,7 @@ impl<'a> SerialMessage<'a> {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct SendData<'a> {
-    data: &'a [u8],
+    pub data: &'a [u8],
 }
 
 #[cfg(feature = "std")]
@@ -161,7 +161,7 @@ pub struct GetRawIq;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ReceiveData<'a> {
-    data: &'a [u8],
+    pub data: &'a [u8],
 }
 
 #[cfg(feature = "std")]
