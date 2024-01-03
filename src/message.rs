@@ -3,6 +3,8 @@
 //! Messages are of two types - depending on direction they are sent. One type goes from host to
 //! orouter and the other vice versa.
 #[cfg(feature = "std")]
+use core::fmt;
+#[cfg(feature = "std")]
 use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -186,7 +188,54 @@ pub struct Report {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Status {
-    pub code: crate::host::StatusCode,
+    pub code: StatusCode,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[repr(u8)]
+pub enum StatusCode {
+    FrameReceived = 1,
+    CommandReceived = 2,
+    ErrUnknownCommmandReceived = 3,
+    ErrBusyLoraTransmitting = 4,
+    ErrMessageQueueFull = 5,
+    RadioNotConfigured = 6,
+}
+
+impl TryFrom<u8> for StatusCode {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(StatusCode::FrameReceived),
+            2 => Ok(StatusCode::CommandReceived),
+            3 => Ok(StatusCode::ErrUnknownCommmandReceived),
+            4 => Ok(StatusCode::ErrBusyLoraTransmitting),
+            5 => Ok(StatusCode::ErrMessageQueueFull),
+            6 => Ok(StatusCode::RadioNotConfigured),
+            _ => Err("Unknown StatusCode"),
+        }
+    }
+}
+#[cfg(feature = "std")]
+impl fmt::Display for StatusCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            StatusCode::FrameReceived => write!(f, "Single serial frame was successfuly received"),
+            StatusCode::CommandReceived => write!(f, "Command was successfully received"),
+            StatusCode::ErrUnknownCommmandReceived => write!(f, "Error: unknown command type"),
+            StatusCode::ErrBusyLoraTransmitting => write!(
+                f,
+                "Error: cannot execute sent command - radio is currently busy transmitting"
+            ),
+            StatusCode::ErrMessageQueueFull => write!(
+                f,
+                "Transmit queue is full, try sending SendData later again"
+            ),
+            StatusCode::RadioNotConfigured => write!(f, "Error: radio is not configured"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
