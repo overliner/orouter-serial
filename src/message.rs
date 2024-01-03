@@ -34,16 +34,26 @@ pub enum FromStrError<'a> {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 #[serde(bound(deserialize = "'de: 'a"))]
+/// Represents a command sent over serial interface to a from oRouter
 pub enum SerialMessage<'a> {
+    /// Host sending data to node instructing it to broadcast it to the wireless network
     SendData(SendData<'a>),
+    /// Host is recongifuring the node
     Configure(Configure),
+    /// Host requesting the node status
     ReportRequest(ReportRequest),
+    /// Firmware upgrade will follow
     UpgradeFirmwareRequest,
+    /// Set current time
     SetTimestamp(SetTimestamp),
     GetRawIq,
+    /// Node sending data to host
     ReceiveData(ReceiveData<'a>),
+    /// Node reporting information to host
     Report(Report),
+    /// Node reporting some error state to host
     Status(Status),
+    /// Node returns raw IQ data to host
     RawIq(RawIq),
 }
 
