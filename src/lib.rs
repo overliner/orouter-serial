@@ -80,3 +80,27 @@ pub mod defmt;
 pub use heapless;
 
 pub(crate) const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
+
+/// Computed as
+///
+/// ```ignore - not a test
+/// 1+longest_message_length => (now RawIq length with max data)
+/// +
+/// 1+ceil(<previous result>/254) = COBS worst overhead
+/// +
+/// 1 = COBS sentinel (0x00 in our case)
+/// ---
+/// <result>
+/// ```
+///
+pub const fn calculate_cobs_overhead(unecoded_message_size: usize) -> usize {
+    const COBS_OVERHEAD_MAXIMUM: usize = 254;
+    // message type
+    1 +
+        // message size
+        unecoded_message_size +
+        // constant ceil(x / y) can be written as (x+y-1) / y
+        1 + (unecoded_message_size + COBS_OVERHEAD_MAXIMUM - 1) / COBS_OVERHEAD_MAXIMUM +
+        // COBS sentinel
+        1
+}
