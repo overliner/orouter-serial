@@ -68,6 +68,7 @@
 
 #![cfg_attr(any(not(feature = "std"), not(test)), no_std)]
 
+pub mod codec;
 pub mod host;
 pub mod message;
 
@@ -80,6 +81,14 @@ pub mod defmt;
 pub use heapless;
 
 pub(crate) const MAX_LORA_PAYLOAD_LENGTH: usize = 255;
+
+pub const RAWIQ_DATA_LENGTH: usize = 2 * 16_536; // 2048 u16s
+pub const RAWIQ_SAMPLING_FREQ: u32 = 65000; // hertz
+
+#[cfg(feature = "std")]
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(RAWIQ_DATA_LENGTH + 1);
+#[cfg(not(feature = "std"))]
+pub const MAX_MESSAGE_LENGTH: usize = calculate_cobs_overhead(255);
 
 /// Computed as
 ///
