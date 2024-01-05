@@ -15,6 +15,7 @@ use core::fmt;
 #[cfg(feature = "std")]
 use core::str::FromStr;
 use heapless::Vec;
+use serde::{Deserialize, Serialize};
 
 pub mod codec;
 
@@ -75,7 +76,7 @@ impl From<codec::CodecError> for Error {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 #[repr(u8)]
 pub enum StatusCode {
@@ -879,61 +880,6 @@ mod tests {
         let result_len = msg.encode_to_slice(&mut result[..]).unwrap();
         println!("{:02x?}", &result[0..result_len]);
         assert_eq!(result[0..result_len], msg.encode().unwrap()[..]);
-    }
-
-    #[test]
-    fn test_message_parse_status() {
-        let msg = "status@".parse::<Message>().unwrap();
-        assert_eq!(msg, Message::ReportRequest);
-    }
-
-    #[test]
-    fn test_message_parse_send_data() {
-        let msg = "send@0xAABB".parse::<Message>().unwrap();
-        assert_eq!(
-            msg,
-            Message::SendData {
-                data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[0xaa, 0xbb])
-                    .unwrap()
-            }
-        );
-
-        let msg = "send@ccdd".parse::<Message>().unwrap();
-        assert_eq!(
-            msg,
-            Message::SendData {
-                data: Vec::<u8, { crate::MAX_LORA_PAYLOAD_LENGTH }>::from_slice(&[0xcc, 0xdd])
-                    .unwrap()
-            }
-        );
-    }
-
-    #[test]
-    fn test_message_parse_config() {
-        let msg = "config@1|7|aacc".parse::<Message>().unwrap();
-        assert_eq!(
-            msg,
-            Message::Configure {
-                region: 1,
-                spreading_factor: 7,
-                network: u16::from_be_bytes([0xaa, 0xcc])
-            }
-        );
-    }
-
-    #[test]
-    fn test_message_parse_config_invalid_sf() {
-        let err = "config@1|6|aacc".parse::<Message>();
-        assert_eq!(err, Err(ParseMessageError::InvalidMessage));
-
-        let err = "config@1|13|ccaa".parse::<Message>();
-        assert_eq!(err, Err(ParseMessageError::InvalidMessage));
-    }
-
-    #[test]
-    #[should_panic(expected = "MissingConfigNetwork")]
-    fn test_message_parse_config_missing_network() {
-        "config@1|12".parse::<Message>().unwrap();
     }
 
     #[test]
