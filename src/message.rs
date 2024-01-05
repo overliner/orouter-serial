@@ -10,6 +10,7 @@ use core::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "std", derive(Debug))]
+#[cfg_attr(feature = "defmt-impl", derive(defmt::Format))]
 pub enum Error {
     InvalidMessageType(u8),
     MissingCobsSentinel,
@@ -188,12 +189,14 @@ pub struct Report {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
+#[cfg_attr(feature = "defmt-impl", derive(defmt::Format))]
 pub struct Status {
     pub code: StatusCode,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
+#[cfg_attr(feature = "defmt-impl", derive(defmt::Format))]
 #[repr(u8)]
 pub enum StatusCode {
     FrameReceived = 1,

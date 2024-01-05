@@ -44,7 +44,6 @@
 //! Example:
 //!
 //! ```rust,no_run
-//! use std::str::FromStr;
 //! use orouter_serial::{
 //!     message::SerialMessage,
 //!     codec::{UsbCodec, WireCodec},
