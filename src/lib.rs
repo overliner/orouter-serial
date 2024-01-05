@@ -12,23 +12,22 @@
 //! Example:
 //!
 //! ```rust,no_run
-//! use orouter_serial::host::{
-//!     calculate_cobs_overhead,
-//!     codec::{UsbCodec, MAX_USB_FRAME_LENGTH},
-//!     Message, MessageReader, StatusCode, RAWIQ_DATA_LENGTH,
+//! use orouter_serial::message::{
+//!     self,
+//!     SerialMessage,
+//!     StatusCode,
+//!     Status
 //! };
 //!
-//! const TEST_DATA: [u8; 4] = [0x03, 0xc5, 0x02, 0x00];
-//!
 //! fn main() {
-//!     let mut message_reader =
-//!         MessageReader::<{ calculate_cobs_overhead(RAWIQ_DATA_LENGTH) }, 17>::default();
-//!     // feed the message_reader with test data representing a Status message
-//!     let messages = message_reader.process_bytes::<UsbCodec>(&TEST_DATA[..]).unwrap();
+//!     let mut TEST_DATA: [u8; 4] = [0x03, 0xc5, 0x02, 0x00];
+//!     // try to read message from a buffer
+//!     let messages: Result<Vec<message::SerialMessage>, _>
+//!         = message::try_decode_messages(&mut TEST_DATA[..]).collect();
 //!     println!("received messages = {:?}", messages);
 //!     assert_eq!(
-//!         messages.get(0),
-//!         Some(Message::Status { code: StatusCode::FrameReceived}).as_ref()
+//!         messages.unwrap().get(0),
+//!         Some(SerialMessage::Status(Status { code: StatusCode::FrameReceived})).as_ref()
 //!     );
 //! }
 //! ```
@@ -46,16 +45,22 @@
 //!
 //! ```rust,no_run
 //! use std::str::FromStr;
-//! use orouter_serial::host::{codec::UsbCodec, Message};
+//! use orouter_serial::{
+//!     message::SerialMessage,
+//!     codec::{UsbCodec, WireCodec},
+//! };
 //!
 //! fn main() {
+//!     let mut data_buffer = [0; 255];
+//!     let mut encoded = [0; 270];
 //!     // let's create a configuration message to set oRouter to EU region with spreading factor 7
-//!     let message = Message::from_str("config@1|7").unwrap();
+//!     let message = SerialMessage::new_from_str("config@1|7|AACC", &mut data_buffer[..]).unwrap();
 //!     // for simplicity just output the bytes
-//!     println!("bytes = {:02x?}", message.encode().unwrap().as_slice());
+//!     let bytes = postcard::to_slice_cobs(&message, &mut encoded).unwrap();
+//!     println!("bytes = {:02x?}", bytes);
 //!
 //!     // now let's get frames for sending over USB
-//!     let _frames = message.as_frames::<UsbCodec>().unwrap();
+//!     let _frames = UsbCodec::get_frames(bytes).unwrap();
 //! }
 //! ```
 //!
