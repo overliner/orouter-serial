@@ -8,7 +8,6 @@ use core::fmt;
 use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum Error {
@@ -19,6 +18,7 @@ pub enum Error {
     InvalidStatusCode(u8),
     BufferToShortToEncodeMessage,
     CantWriteMessageToBuffer,
+    RawIqDataIncorrectLength,
 }
 
 #[cfg_attr(feature = "std", derive(Debug, PartialEq))]
@@ -57,7 +57,7 @@ pub enum SerialMessage<'a> {
     /// Node reporting some error state to host
     Status(Status),
     /// Node returns raw IQ data to host
-    RawIq(RawIq),
+    RawIq(RawIq<'a>),
 }
 
 #[cfg(feature = "std")]
@@ -241,9 +241,29 @@ impl fmt::Display for StatusCode {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct RawIq {
-    #[serde(with = "BigArray")]
-    pub data: [u16; crate::RAWIQ_SAMPLE_COUNT],
+pub struct RawIq<'a> {
+    data: &'a [u8],
+}
+
+impl<'a> RawIq<'a> {
+    pub fn raw_data(&self) -> &[u8] {
+        self.data
+    }
+
+    /// returns internal data represented as slice of u16's - as they were measures with the ADC
+    pub fn data(&self) -> impl Iterator<Item = u16> + 'a {
+        self.data
+            .chunks_exact(2)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+    }
+
+    pub fn set_data(&mut self, data: &'a [u8]) -> Result<(), Error> {
+        if data.len() != crate::RAWIQ_DATA_LENGTH {
+            return Err(Error::RawIqDataIncorrectLength);
+        }
+        self.data = data;
+        Ok(())
+    }
 }
 
 /// Find all possible range in buffer which represent COBS encoded message
