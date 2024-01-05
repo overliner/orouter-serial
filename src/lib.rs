@@ -69,7 +69,6 @@
 #![cfg_attr(any(not(feature = "std"), not(test)), no_std)]
 
 pub mod codec;
-pub mod host;
 pub mod message;
 
 // include defmt::Format implementations
