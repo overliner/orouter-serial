@@ -14,7 +14,9 @@ base16 = { version = "0.2", default-features = false }
 cobs = { version = "0.1", default-features = false }
 defmt = { version = "0.3.1", optional = true }
 heapless = { version = "0.7" }
+postcard = { version = "1.0.8", default-features = false, features = ["use-defmt"] }
 rand = { version = "0.7", default-features = false, features = ["small_rng"]}
+serde = { version = "1.0.193", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 rand = { version = "0.7" }
@@ -30,3 +32,7 @@ name = "read"
 
 [[example]]
 name = "write"
+
+[[bin]]
+name = "output"
+path = "src/bin/output.rs"

@@ -15,12 +15,12 @@ const MAX_BLE_FRAMES_COUNT_REMAINDER: usize = 1;
 const MAX_USB_FRAMES_COUNT_REMAINDER: usize = 1;
 
 pub const MAX_USB_FRAMES_COUNT: usize =
-    super::MAX_MESSAGE_LENGTH / MAX_USB_FRAME_LENGTH + MAX_USB_FRAMES_COUNT_REMAINDER;
+    crate::MAX_MESSAGE_LENGTH / MAX_USB_FRAME_LENGTH + MAX_USB_FRAMES_COUNT_REMAINDER;
 
 pub const MAX_BLE_FRAMES_COUNT: usize =
     MAX_MESSAGE_LENGTH_HEX_ENCODED / MAX_BLE_FRAME_LENGTH + MAX_BLE_FRAMES_COUNT_REMAINDER;
 
-pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * super::MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
+pub const MAX_MESSAGE_LENGTH_HEX_ENCODED: usize = 2 * crate::MAX_MESSAGE_LENGTH; // hex encoding - each byte = 2 chars
 
 const MAX_BGX13_MESSAGE_LENGTH: usize = 32;
 const MAX_BGX13_FRAMES_COUNT: usize = 9;
@@ -250,11 +250,13 @@ mod tests {
             0xf1, 0x1d, 0x92, 0x81, 0x19, 0x44, 0x92, 0xe5, 0x8d, 0xb5, 0xad, 0x64, 0x24, 0x7b,
             0xf4, 0x3b, 0xf8,
         ];
-        let msg = super::super::Message::SendData {
-            data: Vec::<u8, 255>::from_slice(&encoded[..]).unwrap(),
-        };
+        let msg = crate::message::SerialMessage::SendData(crate::message::SendData {
+            data: &encoded[..],
+        });
 
-        let frames = msg.as_frames::<UsbCodec>().unwrap();
+        let mut cobs_bytes = [0; 270];
+        let frames =
+            UsbCodec::get_frames(postcard::to_slice_cobs(&msg, &mut cobs_bytes).unwrap()).unwrap();
 
         assert_eq!(frames.len(), 2);
 
