@@ -32,3 +32,7 @@ name = "read"
 
 [[example]]
 name = "write"
+
+[[bin]]
+name = "output"
+path = "src/bin/output.rs"
