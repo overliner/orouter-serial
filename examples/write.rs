@@ -17,7 +17,7 @@ fn main() {
         Ok(mut port) => {
             // create a configuration message
             let mut data = [0; 256];
-            let message = SerialMessage::new_from_str("config@1|7", &mut data[..]).unwrap();
+            let message = SerialMessage::new_from_str("config@1|7|aadd", &mut data[..]).unwrap();
             let mut cobs_bytes = [0; 270];
             // ensure we are sending only frames short enough for selected serial line
             let frames = UsbCodec::get_frames(
