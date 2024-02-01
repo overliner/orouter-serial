@@ -51,7 +51,7 @@ jobs:
       run: cargo test
 
     - name: test without std
-      run: cargo build --no-default-features --features=defmt-impl
+      run: cargo build --lib --no-default-features --features=defmt-impl
 
 
   notify_failure:
